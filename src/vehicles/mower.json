@@ -24,10 +24,5 @@
   "drive": "rwd",
   "steer": 1.15,
   "nameTagHeight": 2.0,
-  "colors": [
-    "#2e7d32",
-    "#e53935",
-    "#fbc02d",
-    "#1565c0"
-  ]
+  "colors": ["#2e7d32", "#e53935", "#fbc02d", "#1565c0"]
 }
