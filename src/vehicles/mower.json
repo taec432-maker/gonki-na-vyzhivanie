@@ -1,0 +1,33 @@
+{
+  "id": "mower",
+  "number": 12,
+  "name": "Газонокосилка",
+  "category": "odd",
+  "rarity": "common",
+  "placeholder": true,
+  "model": null,
+  "body": "mower",
+  "mass": 650,
+  "powerKw": 165,
+  "maxSpeedKmh": 195,
+  "grip": 1.02,
+  "hp": 70,
+  "dims": {
+    "length": 2.4,
+    "width": 1.35,
+    "height": 1.15
+  },
+  "wheelbase": 1.5,
+  "track": 1.05,
+  "wheelRadius": 0.24,
+  "rearWheelRadius": 0.32,
+  "drive": "rwd",
+  "steer": 1.15,
+  "nameTagHeight": 2.0,
+  "colors": [
+    "#2e7d32",
+    "#e53935",
+    "#fbc02d",
+    "#1565c0"
+  ]
+}

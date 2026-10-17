@@ -1,0 +1,23 @@
+{
+  "id": "supercar",
+  "number": 3,
+  "name": "Суперкар",
+  "category": "race",
+  "rarity": "rare",
+  "placeholder": true,
+  "model": null,
+  "body": "supercar",
+  "mass": 1420,
+  "powerKw": 450,
+  "maxSpeedKmh": 260,
+  "grip": 1.12,
+  "hp": 95,
+  "dims": { "length": 4.6, "width": 2.02, "height": 1.14 },
+  "wheelbase": 2.7,
+  "track": 1.72,
+  "wheelRadius": 0.35,
+  "drive": "awd",
+  "steer": 1.0,
+  "nameTagHeight": 2.1,
+  "colors": ["#ffb300", "#e10600", "#0f9d58", "#f5f5f5", "#121212", "#7c4dff"]
+}

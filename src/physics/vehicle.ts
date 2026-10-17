@@ -191,7 +191,7 @@ export class PhysVehicle {
     for (let i = 0; i < 4; i++) ctl.setWheelEngineForce(i, 0);
     // Вперёд машины — −Z, а ось контроллера — +Z, поэтому знак силы обратный.
     for (const i of driven) ctl.setWheelEngineForce(i, -force / driven.length);
-    const brakeF = Math.max(0, Math.min(1, c.brake)) * this.spec.mass * 0.0105 * (this.stalled ? 1 : 1);
+    const brakeF = Math.max(0, Math.min(1, c.brake)) * this.spec.mass * this.massMul * 0.0105;
     const idleBrake = throttle === 0 && c.brake === 0 ? 0.6 : 0;
     for (let i = 0; i < 4; i++) ctl.setWheelBrake(i, brakeF + idleBrake);
     // Руль: меньше угол на скорости, чтобы машина не срывалась в занос от каждого движения.
@@ -204,7 +204,7 @@ export class PhysVehicle {
 
     // Аэродинамика: сопротивление и прижим; сопротивление качению по покрытию.
     const lv = this.body.linvel();
-    const m = this.spec.mass;
+    const m = this.spec.mass * this.massMul;
     const dragF = this.dragK * speed * speed;
     const rollF = this.rollingDrag * m * 9.81 * Math.min(1, speed / 3);
     if (speed > 0.1) {
@@ -262,6 +262,28 @@ export class PhysVehicle {
     const fz = -Math.cos(heading) * speed;
     this.body.setLinvel({ x: fx, y: 0, z: fz }, true);
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+  }
+
+  private massMul = 1;
+
+  /** Множитель массы (Монстр — тяжелее, расталкивает остальных). */
+  setMassMul(k: number): void {
+    if (Math.abs(this.massMul - k) < 1e-3) return;
+    this.massMul = k;
+    const { length, width, height } = this.spec.dims;
+    const m = this.spec.mass * k;
+    const s2 = this.scale * this.scale;
+    const ix = (m / 12) * (width * width + height * height) * 1.6 * s2;
+    const iy = (m / 12) * (width * width + length * length) * 1.3 * s2;
+    const iz = (m / 12) * (length * length + height * height) * 1.6 * s2;
+    this.body.setAdditionalMassProperties(
+      m,
+      { x: 0, y: -0.25 * this.scale, z: 0 },
+      { x: ix, y: iy, z: iz },
+      { x: 0, y: 0, z: 0, w: 1 },
+      true,
+    );
+    for (let i = 0; i < 4; i++) this.controller.setWheelMaxSuspensionForce(i, m * 9.81 * 6);
   }
 
   /** Изменить масштаб машины (Монстр): пересоздаёт коллайдер и колёса. */

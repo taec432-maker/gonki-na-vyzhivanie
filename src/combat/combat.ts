@@ -61,6 +61,10 @@ export interface CombatEvents {
   'oil-spill': { hazard: TrapHazard };
   'oil-hit': { car: SimCar };
   damage: { car: SimCar; amount: number; cause: string; byId: number | null };
+  'mine-drop': { hazard: TrapHazard };
+  emp: { car: SimCar };
+  nails: { car: SimCar };
+  armageddon: { car: SimCar };
 }
 
 interface Pending {
@@ -86,6 +90,10 @@ export class Combat {
   private nextId = 1;
   /** Обработчики эффектов (этап 4 добавляет остальные). */
   private readonly handlers = new Map<EffectId, (car: SimCar, power: number, meta: EffectMeta) => void>();
+  /** Отложенные действия: мины по очереди, метеориты. */
+  private readonly timers: { at: number; fn: () => void }[] = [];
+  /** Этап 4: действие каждый шаг (магнит). */
+  stepHook: (() => void) | null = null;
 
   constructor(sim: Simulation, rng: Rng) {
     this.sim = sim;
@@ -95,6 +103,43 @@ export class Combat {
 
   on(effect: EffectId, fn: (car: SimCar, power: number, meta: EffectMeta) => void): void {
     this.handlers.set(effect, fn);
+  }
+
+  newId(): number {
+    return this.nextId++;
+  }
+
+  /** Случайное число из потока боя (детерминированно). */
+  rngNext(): number {
+    return this.rng.next();
+  }
+
+  pick<T>(items: readonly T[]): T {
+    return this.rng.pick(items);
+  }
+
+  /** Выполнить через n шагов. */
+  later(steps: number, fn: () => void): void {
+    if (steps <= 0) fn();
+    else this.timers.push({ at: this.sim.tick + steps, fn });
+  }
+
+  /** Метеорит с неба точно в машину (Армагеддон). */
+  dropMeteor(target: SimCar, ownerId: number, damage: number): Projectile {
+    const pos = target.cur.p.clone().add(new Vector3(this.rng.range(-6, 6), 60, this.rng.range(-6, 6)));
+    const p: Projectile = {
+      id: this.nextId++,
+      kind: 'meteor',
+      ownerId,
+      targetId: target.id,
+      pos,
+      prev: pos.clone(),
+      vel: new Vector3(0, -40, 0),
+      life: 5 * STEP_HZ,
+      damage,
+    };
+    this.projectiles.push(p);
+    return p;
   }
 
   /** Поставить эффект в очередь (подарок, лайки, панель). */
@@ -283,12 +328,31 @@ export class Combat {
   /** После шага физики: снаряды, ловушки, истечение. */
   postStep(): void {
     const now = this.sim.tick;
+    for (let i = this.timers.length - 1; i >= 0; i--) {
+      const t = this.timers[i] as { at: number; fn: () => void };
+      if (t.at <= now) {
+        this.timers.splice(i, 1);
+        t.fn();
+      }
+    }
+    this.stepHook?.();
     // --- Снаряды.
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const p = this.projectiles[i] as Projectile;
       p.prev.copy(p.pos);
       p.life--;
-      if (p.kind === 'rocket') {
+      if (p.kind === 'meteor') {
+        // Метеорит падает и доводится на цель — урон гарантирован (ТЗ: «всем 50 урона»).
+        const target = p.targetId !== null ? this.sim.carById(p.targetId) : undefined;
+        if (target && !target.race.out) {
+          // Сколько осталось лететь по высоте — за это время догоняем цель по горизонтали (с упреждением).
+          const tLeft = Math.max(0.12, (p.pos.y - target.cur.p.y) / Math.max(1, -p.vel.y));
+          const want = target.cur.p.clone().addScaledVector(target.vel, tLeft).sub(p.pos);
+          p.vel.x = want.x / tLeft;
+          p.vel.z = want.z / tLeft;
+          p.vel.y = Math.min(p.vel.y, -35);
+        }
+      } else if (p.kind === 'rocket') {
         const target = p.targetId !== null ? this.sim.carById(p.targetId) : undefined;
         if (target && !target.race.out) {
           // Самонаведение: поворот вектора скорости к цели (вблизи — резче).
@@ -306,14 +370,14 @@ export class Combat {
           cur.lerp(want, k).normalize();
           p.vel.copy(cur.multiplyScalar(Math.min(95, speed + 30 * STEP)));
         }
-      } else {
-        p.vel.y -= 9.81 * STEP;
       }
       p.pos.addScaledVector(p.vel, STEP);
       let hit: SimCar | null = null;
       for (const c of this.sim.cars) {
         if (c.id === p.ownerId && p.kind === 'rocket') continue;
         if (c.race.out) continue;
+        // Метеорит — только в свою цель (каждому ровно по одному).
+        if (p.kind === 'meteor' && c.id !== p.targetId) continue;
         const r = (p.kind === 'meteor' ? 4.5 : 2.8) * c.phys.scale;
         // Проверяем весь отрезок полёта за шаг — быстрая ракета не «проскакивает» машину.
         if (segmentDist2(p.prev, p.pos, c.cur.p) < r * r) {
@@ -321,8 +385,15 @@ export class Combat {
           break;
         }
       }
-      const groundY = this.sim.track.path.pointAt(this.sim.track.path.project(p.pos.x, p.pos.y, p.pos.z).s, 0).y;
-      const ground = p.pos.y < groundY - 0.2;
+      let ground: boolean;
+      if (p.kind === 'meteor') {
+        // Метеорит «приземляется» на высоте своей цели (трасса бывает на эстакаде).
+        const t = p.targetId !== null ? this.sim.carById(p.targetId) : undefined;
+        ground = p.pos.y < (t ? t.cur.p.y - 0.8 : -50);
+      } else {
+        const groundY = this.sim.track.path.pointAt(this.sim.track.path.project(p.pos.x, p.pos.y, p.pos.z).s, 0).y;
+        ground = p.pos.y < groundY - 0.2;
+      }
       if (hit || p.life <= 0 || ground) {
         this.explode(p, hit);
         this.projectiles.splice(i, 1);
@@ -388,7 +459,8 @@ export class Combat {
           true,
         );
       }
-      const dmg = c === hit ? p.damage : p.damage * 0.5 * k;
+      // Метеорит бьёт только цель; ракета задевает соседей взрывной волной.
+      const dmg = c === hit ? p.damage : p.kind === 'meteor' ? 0 : p.damage * 0.5 * k;
       this.damage(c, dmg, p.kind, p.ownerId);
     }
   }
@@ -406,6 +478,7 @@ export class Combat {
     this.projectiles.length = 0;
     this.traps.length = 0;
     this.queue.length = 0;
+    this.timers.length = 0;
   }
 }
 

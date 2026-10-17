@@ -75,8 +75,9 @@ export class AiPilot {
   /** Лучший прогресс и когда он был достигнут. */
   private lastProgress = -Infinity;
   private progressCheckTick = 0;
-  /** Целевая жертва тарана. */
+  /** Целевая жертва тарана и до какого шага охотимся. */
   ramTarget: number | null = null;
+  ramUntil = 0;
   private readonly rng: Rng;
   readonly out: Controls = { throttle: 0, brake: 0, steer: 0 };
 
@@ -183,6 +184,7 @@ export class AiPilot {
 
     // --- Таран (агрессивные): прицелиться в соседа впереди.
     let ramD: number | null = null;
+    if (this.ramTarget !== null && tick > this.ramUntil) this.ramTarget = null;
     if (this.ramTarget !== null) {
       const t = neighbors.find((n) => n.id === this.ramTarget);
       const ds = t ? path.deltaS(me.s, t.s) : 99;
@@ -232,6 +234,29 @@ export class AiPilot {
       }
     }
     return null;
+  }
+
+  /**
+   * Агрессивный пилот иногда выбирает жертву впереди (4–25 м) и идёт на таран 3 с (раздел 6 ТЗ).
+   * Вызывается симуляцией раз в 3 с.
+   */
+  considerRam(tick: number, meS: number, track: Track, neighbors: readonly Neighbor[]): void {
+    if (this.traits.ram <= 0 || this.ramTarget !== null) return;
+    if (!this.rng.chance(this.traits.ram)) return;
+    let best: Neighbor | null = null;
+    let bestDs = Infinity;
+    for (const n of neighbors) {
+      if (n.ghost) continue;
+      const ds = track.path.deltaS(meS, n.s);
+      if (ds > 4 && ds < 25 && ds < bestDs) {
+        bestDs = ds;
+        best = n;
+      }
+    }
+    if (best) {
+      this.ramTarget = best.id;
+      this.ramUntil = tick + 180;
+    }
   }
 
   /** Сброс после респауна. */
