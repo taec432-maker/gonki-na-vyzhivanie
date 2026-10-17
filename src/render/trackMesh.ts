@@ -308,7 +308,7 @@ export function buildTrackVisual(track: Track): TrackVisual {
   }
   cx /= track.path.samples.length;
   cz /= track.path.samples.length;
-  const groundKey = def.shoulder.surface === 'grass' ? 'grass' : def.shoulder.surface;
+  const groundKey = def.ground ?? (def.shoulder.surface === 'grass' ? 'grass' : def.shoulder.surface);
   const groundMat = pbrMaterial(groundKey, 120);
   if (def.groundColor) groundMat.color.set(def.groundColor).multiplyScalar(1.6);
   materials.push(groundMat);

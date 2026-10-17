@@ -164,7 +164,7 @@ export const GROUND_STYLES: Record<string, GroundStyle> = {
   dirt: { color: '#7a6248', color2: '#5e4a36', mottle: 1.8, speckle: 0.04, roughness: [0.8, 1], normal: 2.6 },
   snow: { color: '#e9eef4', color2: '#cfd9e6', mottle: 1.2, speckle: 0.0, roughness: [0.55, 0.8], normal: 1.2 },
   ice: { color: '#b9d3e6', color2: '#93b6cf', mottle: 1.6, speckle: 0.0, roughness: [0.03, 0.15], normal: 0.6 },
-  concrete: { color: '#9a9893', color2: '#7f7d78', mottle: 1.4, speckle: 0.03, roughness: [0.75, 0.92], normal: 1.4 },
+  concrete: { color: '#7f7d79', color2: '#6a6864', mottle: 1.4, speckle: 0.03, roughness: [0.75, 0.92], normal: 1.4 },
   metal: { color: '#5d6066', color2: '#4a4d52', mottle: 1, speckle: 0.0, roughness: [0.35, 0.6], normal: 0.8 },
   rock: { color: '#7d7166', color2: '#5b524a', mottle: 2.4, speckle: 0.03, roughness: [0.8, 1], normal: 4 },
 };

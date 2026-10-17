@@ -68,19 +68,33 @@ export interface ShortcutDef {
 
 export interface PropDef {
   type: string;
-  /** Где ставить: доля круга, смещение от центра (м), поворот (рад) — либо ряд вдоль трассы. */
+  /** Одиночный: доля круга. */
   at?: number;
+  /**
+   * Смещение: для ряда — расстояние наружу от отбойника (м);
+   * для одиночного — от центральной линии со знаком (+ — справа).
+   */
   d?: number;
   rot?: number;
-  /** Ряд: каждые every метров в диапазоне span, с обеих сторон или с одной. */
+  /** Ряд: каждые every метров в диапазоне span, с обеих сторон (0) или с одной. */
   every?: number;
   span?: Span;
   side?: 1 | -1 | 0;
-  /** Случайный разброс смещения (м) — детерминированно по seed трассы. */
+  /** Случайный разброс (м) — детерминированно по seed трассы. */
   jitter?: number;
   scale?: number;
+  /** Сколько рядов вглубь (для штабелей контейнеров, леса). */
+  rows?: number;
   /** Разрушаемый (бочка, конус, щит): улетает от удара, наносит немного урона. */
   breakable?: boolean;
+}
+
+/** Область декора вне трассы: вода, площадка. Прямоугольник в XZ. */
+export interface AreaDef {
+  type: 'water' | 'ground';
+  rect: [number, number, number, number];
+  y: number;
+  style?: string;
 }
 
 export interface TrackDef {
@@ -114,6 +128,9 @@ export interface TrackDef {
   roster?: string[];
   /** Цвет земли за пределами дороги. */
   groundColor?: string;
+  /** Стиль текстуры земли (src/render/textures.ts GROUND_STYLES). */
+  ground?: string;
+  areas?: AreaDef[];
   /** Высота земли относительно дороги (для каньонов/обрывов — сильно ниже). */
   groundOffset?: number;
 }

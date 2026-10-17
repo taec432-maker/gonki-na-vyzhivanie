@@ -1,0 +1,264 @@
+{
+  "id": "port",
+  "name": "Порт",
+  "description": "Промзона у причала: контейнеры, краны, эстакада над складами",
+  "points": [
+    [
+      0,
+      0,
+      300
+    ],
+    [
+      0,
+      0,
+      120
+    ],
+    [
+      0,
+      0,
+      -60
+    ],
+    [
+      4,
+      0,
+      -190
+    ],
+    [
+      38,
+      0.5,
+      -258
+    ],
+    [
+      108,
+      1.5,
+      -288
+    ],
+    [
+      180,
+      3,
+      -276
+    ],
+    [
+      228,
+      4.5,
+      -226
+    ],
+    [
+      238,
+      5.5,
+      -150
+    ],
+    [
+      214,
+      5.5,
+      -92
+    ],
+    [
+      236,
+      5,
+      -36
+    ],
+    [
+      252,
+      3.5,
+      30
+    ],
+    [
+      232,
+      2,
+      92
+    ],
+    [
+      172,
+      0.8,
+      114
+    ],
+    [
+      124,
+      0,
+      96
+    ],
+    [
+      84,
+      0,
+      122
+    ],
+    [
+      72,
+      0,
+      182
+    ],
+    [
+      100,
+      0,
+      236
+    ],
+    [
+      110,
+      0,
+      290
+    ],
+    [
+      84,
+      0,
+      342
+    ],
+    [
+      34,
+      0,
+      356
+    ]
+  ],
+  "width": 15,
+  "surface": "asphalt",
+  "shoulder": {
+    "width": 2.5,
+    "surface": "dirt"
+  },
+  "walls": {
+    "offset": 1.2,
+    "height": 1.1
+  },
+  "checkpoints": 10,
+  "startAt": 0.02,
+  "lighting": "port-day",
+  "lightingNight": "port-night",
+  "weather": "none",
+  "groundColor": "#8d8a84",
+  "props": [
+    {
+      "type": "crane",
+      "span": {
+        "from": 0.0,
+        "to": 0.26
+      },
+      "side": -1,
+      "every": 75,
+      "d": 15,
+      "rot": -1.5708
+    },
+    {
+      "type": "bollard",
+      "span": {
+        "from": 0.0,
+        "to": 0.27
+      },
+      "side": -1,
+      "every": 12,
+      "d": 24
+    },
+    {
+      "type": "container",
+      "span": {
+        "from": 0.03,
+        "to": 0.25
+      },
+      "side": 1,
+      "every": 14,
+      "d": 5,
+      "rows": 3,
+      "jitter": 1
+    },
+    {
+      "type": "container",
+      "span": {
+        "from": 0.42,
+        "to": 0.56
+      },
+      "side": 0,
+      "every": 15,
+      "d": 6,
+      "rows": 2,
+      "jitter": 1.5
+    },
+    {
+      "type": "warehouse",
+      "span": {
+        "from": 0.6,
+        "to": 0.69
+      },
+      "side": 1,
+      "every": 46,
+      "d": 8,
+      "rot": 0
+    },
+    {
+      "type": "warehouse",
+      "span": {
+        "from": 0.74,
+        "to": 0.92
+      },
+      "side": -1,
+      "every": 50,
+      "d": 10
+    },
+    {
+      "type": "container",
+      "span": {
+        "from": 0.74,
+        "to": 0.92
+      },
+      "side": 1,
+      "every": 16,
+      "d": 6,
+      "rows": 2,
+      "jitter": 1
+    },
+    {
+      "type": "lamp",
+      "span": {
+        "from": 0.0,
+        "to": 1.0
+      },
+      "side": 0,
+      "every": 42,
+      "d": 0.9,
+      "rot": 0
+    },
+    {
+      "type": "barrel",
+      "span": {
+        "from": 0.3,
+        "to": 0.36
+      },
+      "side": 1,
+      "every": 5,
+      "d": 1,
+      "jitter": 2
+    },
+    {
+      "type": "barrel",
+      "span": {
+        "from": 0.62,
+        "to": 0.66
+      },
+      "side": -1,
+      "every": 4,
+      "d": 1.2,
+      "jitter": 2
+    },
+    {
+      "type": "block",
+      "span": {
+        "from": 0.27,
+        "to": 0.4
+      },
+      "side": -1,
+      "every": 6,
+      "d": 0.6
+    }
+  ],
+  "ground": "concrete",
+  "areas": [
+    {
+      "type": "water",
+      "rect": [
+        -700,
+        -420,
+        -40,
+        560
+      ],
+      "y": -0.03
+    }
+  ]
+}
