@@ -1,2 +1,2 @@
 /** Номер текущего этапа (раздел 10 ТЗ) — куда класть скриншоты. */
-export const CURRENT_STAGE = 1;
+export const CURRENT_STAGE = 2;

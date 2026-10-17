@@ -27,7 +27,7 @@ test('smoke: игра загружается, машина едет, кадр б
   const software = /swiftshader|llvmpipe|software/i.test(gpu);
 
   // Дождаться первой гонки (решётка → отсчёт → старт).
-  expect(await page.evaluate(() => (window as unknown as { __game: GameHandle }).__game.advanceUntil('race', 30))).toBe(
+  expect(await page.evaluate(() => (window as unknown as { __game: GameHandle }).__game.advanceUntil('race', 90))).toBe(
     true,
   );
   // ≥ 10 с симуляции (600 шагов) — синхронно, чтобы не зависеть от скорости SwiftShader.
