@@ -13,6 +13,7 @@ interface GameHandle {
     triangles: number;
   };
   advance(n: number): void;
+  advanceUntil(phase: string, maxSeconds?: number): Promise<boolean>;
   setCameraMode(m: string): void;
   meter: { history: number[] };
   errors: string[];
@@ -20,11 +21,15 @@ interface GameHandle {
 
 test('smoke: игра загружается, машина едет, кадр без провалов', async ({ page }) => {
   const errors = collectErrors(page);
-  await page.goto('/?seed=42&bridge=off&fresh');
+  await page.goto('/?seed=42&bridge=off&fresh&bots=8');
   await waitReady(page);
   const gpu = await gpuInfo(page);
   const software = /swiftshader|llvmpipe|software/i.test(gpu);
 
+  // Дождаться первой гонки (решётка → отсчёт → старт).
+  expect(await page.evaluate(() => (window as unknown as { __game: GameHandle }).__game.advanceUntil('race', 30))).toBe(
+    true,
+  );
   // ≥ 10 с симуляции (600 шагов) — синхронно, чтобы не зависеть от скорости SwiftShader.
   const before = await page.evaluate(() => (window as unknown as { __game: GameHandle }).__game.status().tick);
   await page.evaluate(() => (window as unknown as { __game: GameHandle }).__game.advance(600));

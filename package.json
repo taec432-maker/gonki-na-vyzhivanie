@@ -16,7 +16,7 @@
     "e2e": "playwright test",
     "check": "npm run typecheck && npm run lint && npm run test && npm run build && npm run e2e",
     "check:ci": "npm run typecheck && npm run lint && npm run test",
-    "probe:sim": "tsx scripts/dev/sim-probe.ts"
+    "probe:race": "tsx scripts/dev/race-probe.ts"
   },
   "engines": {
     "node": ">=20"
