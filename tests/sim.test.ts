@@ -80,7 +80,9 @@ describe('Simulation', () => {
     sim.startCountdown();
     for (let i = 0; i < 240; i++) sim.step();
     // Глушим двигатель — машина встаёт; через 3 с без прогресса — респаун.
-    car.phys.maxSpeedMul = 0;
+    sim.combat.modifierHook = (c) => {
+      if (c === car) c.phys.maxSpeedMul = 0;
+    };
     for (let i = 0; i < 900 && !respawned; i++) sim.step();
     expect(respawned).toBe(true);
     expect(car.phys.ghost).toBe(true);
