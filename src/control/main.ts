@@ -2,6 +2,7 @@ import '../styles/control.css';
 import { LinkChannel, relayUrlFor } from '../core/channel';
 import type { GameStatus } from '../game';
 import { QUALITY, type QualityLevel } from '../render/quality';
+import { mountGifts } from './gifts';
 
 /** Панель стримера: управляет игрой через LinkChannel (BroadcastChannel + ретранслятор). */
 const channel = new LinkChannel('control', relayUrlFor(location));
@@ -73,6 +74,7 @@ app.innerHTML = `
   </section>
 </main>`;
 
+const updateGifts = mountGifts(app.querySelector('main') as HTMLElement, channel);
 for (const b of app.querySelectorAll<HTMLButtonElement>('[data-cmd]')) {
   b.addEventListener('click', () => channel.send(b.dataset.cmd as string, null));
 }
@@ -144,6 +146,7 @@ channel.on((msg) => {
   if (msg.type !== 'status') return;
   const s = msg.payload as GameStatus;
   lastSeen = Date.now();
+  updateGifts(s);
   statusEl.innerHTML = `
     <span class="muted">Состояние</span><span>${STATE[s.state]}</span>
     <span class="muted">Кадр</span><span>${s.fps} fps (${s.frameMs} мс)</span>
