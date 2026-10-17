@@ -3,7 +3,7 @@ import { STEP } from '../core/loop';
 import { esc, formatTime } from './format';
 
 /**
- * HUD гонки: позиции слева, круг и время сверху, отсчёт по центру, таблица результатов.
+ * HUD гонки: позиции слева, круг и время сверху, отсчёт по центру (итоги — экран подиума).
  * Обновляется 10 раз в секунду — DOM дорогой, кадр дорожке.
  */
 export class RaceHud {
@@ -12,10 +12,8 @@ export class RaceHud {
   private readonly lap: HTMLElement;
   private readonly time: HTMLElement;
   private readonly countdown: HTMLElement;
-  private readonly results: HTMLElement;
   private acc = 0;
   private lastCount = '';
-  private resultsShown = false;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -23,14 +21,12 @@ export class RaceHud {
       'beforeend',
       `<div id="standings" class="panel"></div>
        <div id="race-info" class="panel"><div id="race-lap"></div><div id="race-time"></div></div>
-       <div id="countdown"></div>
-       <div id="results" class="panel hidden"></div>`,
+       <div id="countdown"></div>`,
     );
     this.list = root.querySelector('#standings') as HTMLElement;
     this.lap = root.querySelector('#race-lap') as HTMLElement;
     this.time = root.querySelector('#race-time') as HTMLElement;
     this.countdown = root.querySelector('#countdown') as HTMLElement;
-    this.results = root.querySelector('#results') as HTMLElement;
   }
 
   update(dt: number, sim: Simulation, focusId: number): void {
@@ -59,11 +55,12 @@ export class RaceHud {
         <span class="name">${esc(c.name)}</span><span class="tail">${tail}</span></div>`;
     });
     this.list.innerHTML = rows.join('');
-    if (sim.phase === 'finished' && !this.resultsShown) this.showResults(sim);
-    if (sim.phase !== 'finished' && this.resultsShown) {
-      this.results.classList.add('hidden');
-      this.resultsShown = false;
-    }
+  }
+
+  /** В лобби панели гонки скрыты — там свой экран. */
+  setRaceVisible(v: boolean): void {
+    this.list.classList.toggle('hidden', !v);
+    (this.lap.parentElement as HTMLElement).classList.toggle('hidden', !v);
   }
 
   private updateCountdown(sim: Simulation): void {
@@ -77,19 +74,6 @@ export class RaceHud {
       void this.countdown.offsetWidth;
       if (text) this.countdown.classList.add('pulse');
     }
-  }
-
-  private showResults(sim: Simulation): void {
-    this.resultsShown = true;
-    const rows = sim
-      .results()
-      .map(
-        (r) => `<tr><td class="pos">${r.place}</td><td>${esc(r.name)}</td>
-        <td class="t">${r.finished && r.time !== null ? formatTime(r.time) : r.out ? 'выбыл' : `${r.laps} кр.`}</td></tr>`,
-      )
-      .join('');
-    this.results.innerHTML = `<h2>Результаты заезда</h2><table>${rows}</table>`;
-    this.results.classList.remove('hidden');
   }
 
   setVisible(v: boolean): void {

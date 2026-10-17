@@ -25,6 +25,31 @@ app.innerHTML = `
     <div class="kv" id="status"></div>
   </section>
   <section>
+    <h2>Зрители (тест без TikTok)</h2>
+    <div class="row">
+      <button class="primary" id="mock-1">+1 тест-игрок</button>
+      <button id="mock-20">+20 случайных игроков</button>
+    </div>
+    <div class="row">
+      <input id="chat-name" placeholder="ник" size="12" />
+      <input id="chat-text" placeholder="сообщение" size="14" value="привет" />
+      <button id="chat-send">Написать в чат</button>
+    </div>
+    <div class="muted" id="players-head">В заезде: 0 · в очереди: 0</div>
+    <table id="players"></table>
+  </section>
+  <section>
+    <h2>Настройки заезда</h2>
+    <div class="row"><label>Машин на трассе <input type="number" id="set-max" min="6" max="16" step="1" /></label></div>
+    <div class="row"><label>Кругов <input type="number" id="set-laps" min="1" max="10" step="1" /></label></div>
+    <div class="row"><label>Лобби, с <input type="number" id="set-lobby" min="5" max="300" step="5" /></label>
+      <label>Подиум, с <input type="number" id="set-podium" min="3" max="60" step="1" /></label></div>
+    <div class="row"><label>Вход в гонку
+      <select id="set-join"><option value="any">любое сообщение</option><option value="keyword">ключевое слово</option></select></label>
+      <input id="set-keyword" size="8" /></div>
+    <div class="row"><button class="primary" id="set-apply">Применить</button><span class="muted">Число машин и круги — со следующего заезда.</span></div>
+  </section>
+  <section>
     <h2>Камера</h2>
     <div class="row">
       <button id="cam-auto">Авто (режиссёр)</button>
@@ -70,7 +95,7 @@ let lastSeen = 0;
 const link = document.getElementById('link') as HTMLElement;
 const relay = document.getElementById('relay') as HTMLElement;
 const statusEl = document.getElementById('status') as HTMLElement;
-const STATE: Record<GameStatus['state'], string> = { loading: 'загружается', running: 'идёт', stopped: 'остановлена' };
+const STATE: Record<GameStatus['state'], string> = { loading: 'загружается', running: 'идёт', stopped: 'на паузе' };
 const PHASE: Record<string, string> = {
   grid: 'решётка',
   countdown: 'отсчёт',
@@ -90,6 +115,29 @@ camCars.addEventListener('click', (e) => {
   if (b) channel.send('camera', Number(b.dataset.car));
 });
 let camKey = '';
+const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
+$('mock-1').addEventListener('click', () => channel.send('mock-viewers', { count: 1 }));
+$('mock-20').addEventListener('click', () => channel.send('mock-viewers', { count: 20 }));
+$('chat-send').addEventListener('click', () => {
+  const name = $<HTMLInputElement>('chat-name').value.trim() || 'Тест';
+  channel.send('mock-chat', { userId: `manual-${name}`, name, text: $<HTMLInputElement>('chat-text').value });
+});
+$('players').addEventListener('click', (e) => {
+  const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-remove]');
+  if (b) channel.send('remove-player', { id: b.dataset.remove });
+});
+let settingsLoaded = false;
+$('set-apply').addEventListener('click', () => {
+  channel.send('settings', {
+    maxCars: Number($<HTMLInputElement>('set-max').value),
+    laps: Number($<HTMLInputElement>('set-laps').value),
+    lobbySeconds: Number($<HTMLInputElement>('set-lobby').value),
+    podiumSeconds: Number($<HTMLInputElement>('set-podium').value),
+    joinMode: $<HTMLSelectElement>('set-join').value,
+    keyword: $<HTMLInputElement>('set-keyword').value,
+  });
+  settingsLoaded = false;
+});
 const escHtml = (t: string): string => t.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 channel.on((msg) => {
@@ -100,7 +148,7 @@ channel.on((msg) => {
     <span class="muted">Состояние</span><span>${STATE[s.state]}</span>
     <span class="muted">Кадр</span><span>${s.fps} fps (${s.frameMs} мс)</span>
     <span class="muted">Draw calls</span><span>${s.drawCalls}</span>
-    <span class="muted">Заезд</span><span>№${s.race + 1}, ${PHASE[s.phase] ?? s.phase}, ${s.raceTime.toFixed(0)} с</span>
+    <span class="muted">Заезд</span><span>№${s.race + 1} · ${PHASE[s.phase] ?? s.phase}${s.phase === 'lobby' || s.phase === 'podium' ? ` · ещё ${Math.ceil(s.secondsLeft)} с` : ` · ${s.raceTime.toFixed(0)} с`}</span>
     <span class="muted">Машин</span><span>${s.cars}</span>
     <span class="muted">Физика</span><span>${s.simMs} мс/шаг, кадр на процессоре ${s.cpuMs} мс</span>`;
   const key =
@@ -118,6 +166,23 @@ channel.on((msg) => {
       )
       .join('');
   }
+  if (!settingsLoaded) {
+    settingsLoaded = true;
+    const ss = s.settings.session;
+    $<HTMLInputElement>('set-max').value = String(ss.maxCars);
+    $<HTMLInputElement>('set-laps').value = String(ss.laps);
+    $<HTMLInputElement>('set-lobby').value = String(ss.lobbySeconds);
+    $<HTMLInputElement>('set-podium').value = String(ss.podiumSeconds);
+    $<HTMLSelectElement>('set-join').value = ss.joinMode;
+    $<HTMLInputElement>('set-keyword').value = ss.keyword;
+  }
+  $('players-head').textContent = `В заезде: ${s.roster.length} · в очереди: ${s.queue.length}`;
+  const prow = (p: { id: string; name: string }, where: string) =>
+    `<tr><td>${escHtml(p.name)}</td><td class="muted">${where}</td><td><button class="danger" data-remove="${escHtml(p.id)}">удалить</button></td></tr>`;
+  $('players').innerHTML = [
+    ...s.roster.map((p) => prow(p, 'в заезде')),
+    ...s.queue.map((p, i) => prow(p, `очередь ${i + 1}`)),
+  ].join('');
   standingsEl.innerHTML = s.standings
     .map(
       (c, i) =>

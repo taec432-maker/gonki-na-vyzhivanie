@@ -1,8 +1,12 @@
 import { FixedStepper, STEP, STEP_HZ } from './core/loop';
 import { LinkChannel, relayUrlFor } from './core/channel';
 import type { UrlParams } from './core/params';
-import { hashString } from './core/rng';
-import { Simulation, type CarEntry } from './core/sim';
+import { loadSettings, saveSettings, type GameSettings } from './core/settings';
+import type { Simulation } from './core/sim';
+import { EventNormalizer } from './bridge/normalize';
+import { MockViewers } from './bridge/mock';
+import type { BridgeEnvelope } from './bridge/protocol';
+import { Session, type SessionSettings } from './race/session';
 import { CarView } from './render/carView';
 import { CameraDirector } from './render/director';
 import { presetById } from './render/presets';
@@ -11,15 +15,21 @@ import { isQualityLevel } from './render/quality';
 import { Renderer, type FrameStats } from './render/renderer';
 import { buildTrackVisual, type TrackVisual } from './render/trackMesh';
 import { WheelRenderer } from './render/wheels';
+import { LobbyScreen } from './hud/lobby';
+import { NameTags } from './hud/nameTags';
 import { RaceHud } from './hud/raceHud';
 import { FrameStatsMeter } from './hud/stats';
 import { trackById } from './tracks';
+import type { TrackDef } from './tracks/types';
 import { VEHICLES } from './vehicles';
 import type { Group } from 'three';
 
 export interface GameStatus {
   state: 'loading' | 'running' | 'stopped';
+  /** Фаза сессии: lobby | countdown | race | podium. */
   phase: string;
+  simPhase: string;
+  secondsLeft: number;
   raceTime: number;
   race: number;
   track: string;
@@ -36,46 +46,11 @@ export interface GameStatus {
   cpuMs: number;
   triangles: number;
   camera: { manualId: number | null; targetId: number; shot: string };
-  standings: { id: number; name: string; color: string; lap: number; finished: boolean }[];
+  standings: { id: number; name: string; color: string; lap: number; finished: boolean; playerId: string | null }[];
+  roster: { id: string; name: string }[];
+  queue: { id: string; name: string }[];
+  settings: GameSettings;
 }
-
-export const BOT_NAMES = [
-  'Рыжий',
-  'Серый',
-  'Шустрый',
-  'Барон',
-  'Молния',
-  'Гайка',
-  'Турбо',
-  'Кнопка',
-  'Ржавый',
-  'Дизель',
-  'Шпилька',
-  'Тормоз',
-  'Пончик',
-  'Крот',
-  'Сокол',
-  'Вжик',
-];
-
-export const CAR_COLORS = [
-  '#c8102e',
-  '#1b3a8a',
-  '#f5b800',
-  '#2e8b57',
-  '#f2f2f2',
-  '#1f1f22',
-  '#ff7a00',
-  '#7b2cbf',
-  '#00a3c4',
-  '#9aa0a6',
-  '#e04f9f',
-  '#6b4423',
-  '#7fff00',
-  '#8b0000',
-  '#40e0d0',
-  '#ffd1dc',
-];
 
 export interface SoakReport {
   races: number;
@@ -86,19 +61,25 @@ export interface SoakReport {
   perRace: { finished: number; cars: number; time: number; respawns: number; winner: string }[];
 }
 
-/** Страница игры: симуляция + рендер + HUD + связь с панелью. */
+/** Страница игры: сессия (симуляция) + рендер + HUD + связь с панелью. */
 export class Game {
   readonly params: UrlParams;
-  sim!: Simulation;
+  session!: Session;
   readonly renderer: Renderer;
   readonly stepper = new FixedStepper();
   readonly meter = new FrameStatsMeter();
   readonly channel: LinkChannel;
   readonly director = new CameraDirector();
+  readonly normalizer = new EventNormalizer();
+  readonly mock: MockViewers;
+  settings: GameSettings;
   private views = new Map<number, CarView>();
   private wheels!: WheelRenderer;
   private hud!: RaceHud;
+  private lobby!: LobbyScreen;
+  nameTags!: NameTags;
   private trackVisual: { id: string; visual: TrackVisual; props: Group } | null = null;
+  private loadingTrack: Promise<void> | null = null;
   private last = 0;
   private lastStats: FrameStats = { drawCalls: 0, triangles: 0, textures: 0, geometries: 0 };
   private statusTimer = 0;
@@ -106,15 +87,7 @@ export class Game {
   private hudFps: HTMLElement;
   private simMsAvg = 0;
   private cpuMsAvg = 0;
-  private switching = false;
   private soaking = false;
-  /** Номер заезда с начала сессии. */
-  raceIndex = 0;
-  /** Секунд показа решётки до отсчёта и результатов после финиша. */
-  gridSeconds = 2.5;
-  resultsSeconds = 10;
-  botCount = 8;
-  laps = 3;
   /** Сколько кадров отрисовано (тесты ждут кадры, а не секунды — SwiftShader медленный). */
   frameCount = 0;
   ready = false;
@@ -127,101 +100,145 @@ export class Game {
     this.channel = new LinkChannel('game', relayUrlFor(location));
     this.hudSpeed = document.getElementById('hud-speed') as HTMLElement;
     this.hudFps = document.getElementById('hud-fps') as HTMLElement;
+    this.mock = new MockViewers(params.seed);
     this.stepper.timeScale = params.turbo;
-    if (params.bots !== null) this.botCount = Math.max(1, Math.min(16, params.bots));
-    if (params.laps !== null) this.laps = Math.max(1, Math.min(20, params.laps));
+    this.settings = loadSettings(params.fresh);
+    // Параметры адреса — для тестов и просмотра; в сохранённые настройки не попадают.
+    const s = this.settings.session;
+    if (params.bots !== null) s.minCars = s.maxCars = Math.max(1, Math.min(16, params.bots));
+    if (params.laps !== null) s.laps = Math.max(1, Math.min(10, params.laps));
     if (params.quick) {
-      this.gridSeconds = 0.2;
-      this.resultsSeconds = 2;
+      s.lobbySeconds = 2;
+      s.podiumSeconds = 3;
     }
-    if (params.quality && isQualityLevel(params.quality)) this.renderer.setQuality(params.quality);
+    const q = params.quality && isQualityLevel(params.quality) ? params.quality : this.settings.quality;
+    this.renderer.setQuality(q);
+    this.renderer.setResolutionScale(this.settings.resolution);
     window.addEventListener('resize', () => this.renderer.resize());
     this.channel.on((msg) => this.onCommand(msg.type, msg.payload));
   }
 
+  get sim(): Simulation {
+    return this.session.sim;
+  }
+
+  private trackFor = (_raceIndex: number): TrackDef => trackById(this.params.track ?? 'port');
+
   async start(onProgress: (k: number, label: string) => void): Promise<void> {
     onProgress(0.1, 'Физика');
-    this.hud = new RaceHud(document.getElementById('hud') as HTMLElement);
+    const hudRoot = document.getElementById('hud') as HTMLElement;
+    this.nameTags = new NameTags(hudRoot);
+    this.hud = new RaceHud(hudRoot);
+    this.lobby = new LobbyScreen(hudRoot);
     this.wheels = new WheelRenderer(this.renderer.scene);
+    this.session = await Session.create({
+      seed: this.params.seed,
+      settings: this.settings.session,
+      trackFor: this.trackFor,
+      vehiclesFor: () => VEHICLES,
+    });
+    this.bindSession();
     onProgress(0.3, 'Трасса и освещение');
-    await this.newRace();
+    await this.ensureTrack(this.sim.track.def);
+    this.syncViews();
     onProgress(1, 'Готово');
     this.ready = true;
     this.last = performance.now();
     requestAnimationFrame(this.frame);
   }
 
-  /** Seed заезда: от базового seed и номера заезда — сессия воспроизводима целиком. */
-  private raceSeed(index: number): number {
-    return (hashString(`${this.params.seed}:${index}`) ^ this.params.seed) >>> 0;
-  }
-
-  /** Список участников заезда. Этап 2 заменит ботов зрителями из очереди. */
-  protected entries(): CarEntry[] {
-    const list: CarEntry[] = [];
-    const common = VEHICLES.filter((v) => v.rarity === 'common');
-    for (let i = 0; i < this.botCount; i++) {
-      list.push({
-        name: `Бот ${BOT_NAMES[i % BOT_NAMES.length] as string}`,
-        color: CAR_COLORS[i % CAR_COLORS.length] as string,
-        spec: common[(i + this.raceIndex) % common.length] ?? (VEHICLES[0] as (typeof VEHICLES)[number]),
-        playerId: null,
-      });
-    }
-    return list;
-  }
-
-  /** Подготовить новый заезд: новая симуляция, машины на решётке, камера — облёт. */
-  async newRace(): Promise<void> {
-    this.switching = true;
-    const trackId = this.params.track ?? 'port';
-    const def = trackById(trackId);
-    const old = this.sim;
-    this.sim = await Simulation.create({ seed: this.raceSeed(this.raceIndex), track: def, laps: this.laps });
-    if (!this.trackVisual || this.trackVisual.id !== def.id) {
-      if (this.trackVisual) {
-        this.renderer.scene.remove(this.trackVisual.visual.group, this.trackVisual.props);
+  private bindSession(): void {
+    const ev = this.session.events;
+    ev.on('race-created', ({ sim }) => {
+      this.director.reset();
+      sim.events.on('finish', (e) => this.director.hotspot(e.car.id, e.car.cur.p, 2.5));
+      if (this.trackVisual?.id !== sim.track.def.id) this.loadingTrack = this.ensureTrack(sim.track.def);
+    });
+    ev.on('car-added', ({ car }) => {
+      if (!this.views.has(car.id)) this.views.set(car.id, new CarView(this.renderer.scene, car));
+    });
+    ev.on('car-removed', ({ car }) => {
+      const v = this.views.get(car.id);
+      if (v) {
+        v.dispose(this.renderer.scene);
+        this.views.delete(car.id);
       }
-      await this.renderer.applyPreset(presetById(def.lighting));
-      const visual = buildTrackVisual(this.sim.track);
-      const props = buildProps(this.sim.track);
-      this.renderer.scene.add(visual.group, props.group);
-      this.trackVisual = { id: def.id, visual, props: props.group };
+    });
+  }
+
+  /** Привести набор CarView к машинам текущей симуляции. */
+  private syncViews(): void {
+    const ids = new Set(this.sim.cars.map((c) => c.id));
+    for (const [id, v] of this.views)
+      if (!ids.has(id) || v.car !== this.sim.carById(id)) {
+        v.dispose(this.renderer.scene);
+        this.views.delete(id);
+      }
+    for (const c of this.sim.cars) if (!this.views.has(c.id)) this.views.set(c.id, new CarView(this.renderer.scene, c));
+  }
+
+  private async ensureTrack(def: TrackDef): Promise<void> {
+    if (this.trackVisual?.id === def.id) return;
+    if (this.trackVisual) this.renderer.scene.remove(this.trackVisual.visual.group, this.trackVisual.props);
+    await this.renderer.applyPreset(presetById(def.lighting));
+    const visual = buildTrackVisual(this.sim.track);
+    const props = buildProps(this.sim.track);
+    this.renderer.scene.add(visual.group, props.group);
+    this.trackVisual = { id: def.id, visual, props: props.group };
+    this.loadingTrack = null;
+  }
+
+  /** Сообщение в формате Bridge (настоящее или мок) → разбор → сессия. Один путь для всех. */
+  ingest(raw: BridgeEnvelope): void {
+    const ev = this.normalizer.normalize(raw);
+    if (ev) this.session.handle(ev);
+  }
+
+  /** Мок: n новых зрителей пишут в чат. */
+  mockViewers(n: number): void {
+    for (let i = 0; i < n; i++) {
+      const v = this.mock.viewer();
+      this.ingest(this.mock.chat(v.userId, v.name));
     }
-    for (const v of this.views.values()) v.dispose(this.renderer.scene);
-    this.views.clear();
-    old?.dispose();
-    for (const e of this.entries()) {
-      const car = this.sim.addCar(e);
-      this.views.set(car.id, new CarView(this.renderer.scene, car));
-    }
-    this.sim.events.on('finish', (e) => this.director.hotspot(e.car.id, e.car.cur.p, 2.5));
-    this.director.reset();
-    this.stepper.reset();
-    this.switching = false;
+  }
+
+  private persist(): void {
+    this.settings.session = { ...this.session.settings };
+    saveSettings(this.settings, this.params.fresh);
   }
 
   private onCommand(type: string, payload: unknown): void {
+    const p = (payload ?? {}) as Record<string, unknown>;
     switch (type) {
       case 'start':
-        this.sim.running = true;
-        if (this.sim.phase === 'grid') this.sim.startCountdown();
+        this.session.startNow();
         break;
       case 'stop':
-        this.sim.running = false;
+        this.session.paused = true;
         break;
       case 'restart':
-        void this.newRace();
+        this.session.restart();
         break;
       case 'next-race':
-        this.raceIndex++;
-        void this.newRace();
+        this.session.skip();
         break;
       case 'quality':
-        if (isQualityLevel(payload)) this.renderer.setQuality(payload);
+        if (isQualityLevel(payload)) {
+          this.renderer.setQuality(payload);
+          this.settings.quality = payload;
+          this.persist();
+        }
         break;
       case 'resolution':
-        if (typeof payload === 'number') this.renderer.setResolutionScale(payload);
+        if (typeof payload === 'number') {
+          this.renderer.setResolutionScale(payload);
+          this.settings.resolution = this.renderer.resolutionScale;
+          this.persist();
+        }
+        break;
+      case 'settings':
+        this.session.updateSettings(payload as Partial<SessionSettings>);
+        this.persist();
         break;
       case 'camera':
         if (payload === 'overview') this.director.forceOverview = true;
@@ -232,6 +249,17 @@ export class Game {
           this.director.forceOverview = false;
           this.director.manualId = payload;
         }
+        break;
+      case 'mock-viewers':
+        this.mockViewers(Math.max(1, Math.min(50, Number(p.count ?? 1))));
+        break;
+      case 'mock-chat': {
+        const id = String(p.userId ?? '');
+        if (id) this.ingest(this.mock.chat(id, String(p.name ?? id), String(p.text ?? 'привет')));
+        break;
+      }
+      case 'remove-player':
+        if (typeof p.id === 'string') this.session.removePlayer(p.id);
         break;
       case 'hello':
         this.sendStatus();
@@ -245,12 +273,15 @@ export class Game {
   }
 
   status(): GameStatus {
-    const sim = this.sim;
+    const ses = this.session;
+    const sim = ses?.sim;
     return {
-      state: !this.ready ? 'loading' : sim.running ? 'running' : 'stopped',
-      phase: sim?.phase ?? 'grid',
+      state: !this.ready ? 'loading' : ses.paused ? 'stopped' : 'running',
+      phase: ses?.phase ?? 'lobby',
+      simPhase: sim?.phase ?? 'grid',
+      secondsLeft: +(ses?.secondsLeft ?? 0).toFixed(1),
       raceTime: +(sim?.raceTime ?? 0).toFixed(2),
-      race: this.raceIndex,
+      race: ses?.raceIndex ?? 0,
       track: sim?.track.def.id ?? '',
       fps: Math.round(this.meter.fps()),
       frameMs: +this.meter.median().toFixed(2),
@@ -269,7 +300,11 @@ export class Game {
         color: c.color,
         lap: c.race.lap,
         finished: c.race.finished,
+        playerId: c.playerId,
       })),
+      roster: (ses?.roster ?? []).map((p) => ({ id: p.id, name: p.rawName })),
+      queue: (ses?.queue ?? []).map((p) => ({ id: p.id, name: p.rawName })),
+      settings: { ...this.settings, session: ses?.settings ?? this.settings.session },
     };
   }
 
@@ -277,42 +312,41 @@ export class Game {
     this.channel.send('status', this.status());
   }
 
-  /** Переходы между фазами заезда, общие для обычного режима и soak-теста. */
-  private lifecycle(): 'next' | null {
-    const sim = this.sim;
-    if (sim.phase === 'grid' && sim.running && sim.phaseTick >= this.gridSeconds * STEP_HZ) sim.startCountdown();
-    if (sim.phase === 'finished' && sim.phaseTick >= this.resultsSeconds * STEP_HZ) return 'next';
-    return null;
-  }
-
   private readonly frame = (now: number): void => {
     requestAnimationFrame(this.frame);
     const dt = Math.min(0.1, (now - this.last) / 1000);
     this.meter.push(now - this.last);
     this.last = now;
-    if (this.switching || this.soaking) return;
+    if (this.soaking || this.loadingTrack) return;
     try {
       const t0 = performance.now();
       const steps = this.stepper.advance(dt);
-      for (let i = 0; i < steps; i++) {
-        this.sim.step();
-        if (this.lifecycle() === 'next') {
-          this.raceIndex++;
-          void this.newRace();
-          return;
-        }
-      }
+      for (let i = 0; i < steps; i++) this.session.step();
       const t1 = performance.now();
       if (steps > 0) this.simMsAvg += ((t1 - t0) / steps - this.simMsAvg) * 0.05;
+      this.syncViews();
       const alpha = this.stepper.alpha;
       this.wheels.begin();
       for (const v of this.views.values()) v.update(alpha, this.wheels);
       this.wheels.end();
+      this.director.lobbyOffset = this.session.phase === 'lobby';
+      this.director.winnerId = this.session.phase === 'podium' ? (this.sim.standings()[0]?.id ?? null) : null;
       const focus = this.director.update(dt, this.renderer.camera, this.sim, this.views);
       this.renderer.updateSun(focus, this.director.shot === 'overview' ? 220 : 70);
       const target = this.views.get(this.director.targetId);
-      this.hudSpeed.textContent = target ? `${Math.round(Math.abs(target.car.phys.forwardSpeed()) * 3.6)} км/ч` : '';
+      const racing = this.session.phase === 'race' || this.session.phase === 'countdown';
+      this.hudSpeed.textContent =
+        target && racing ? `${Math.round(Math.abs(target.car.phys.forwardSpeed()) * 3.6)} км/ч` : '';
+      this.hud.setRaceVisible(racing);
       this.hud.update(dt, this.sim, this.director.targetId);
+      this.lobby.update(dt, this.session);
+      this.nameTags.sync(this.views);
+      this.nameTags.update(dt, this.renderer.camera, this.views, [
+        document.getElementById('standings'),
+        document.getElementById('race-info'),
+        document.getElementById('lobby'),
+        document.getElementById('podium'),
+      ]);
       this.cpuMsAvg += (performance.now() - t0 - this.cpuMsAvg) * 0.05;
       this.lastStats = this.renderer.render(dt);
       this.frameCount++;
@@ -328,43 +362,36 @@ export class Game {
     }
   };
 
-  /** Для тестов: проиграть n шагов симуляции синхронно. */
+  /** Для тестов: проиграть n шагов сессии синхронно. */
   advance(n: number): void {
-    for (let i = 0; i < n; i++) {
-      this.sim.step();
-      this.lifecycle();
-    }
+    for (let i = 0; i < n; i++) this.session.step();
   }
 
-  /** Перемотать до фазы (для скриншотов): не дольше maxSeconds симуляции. */
+  /** Перемотать до фазы сессии (lobby/countdown/race/podium) или симуляции (finished). */
   async advanceUntil(phase: string, maxSeconds = 600): Promise<boolean> {
     const limit = maxSeconds * STEP_HZ;
+    const hit = (): boolean => this.session.phase === phase || this.sim.phase === phase;
     for (let i = 0; i < limit; i++) {
-      if (this.sim.phase === phase) return true;
-      this.sim.step();
-      if (this.lifecycle() === 'next') {
-        this.raceIndex++;
-        await this.newRace();
-      }
+      if (hit()) return true;
+      this.session.step();
       if (i % 600 === 599) await new Promise((r) => setTimeout(r, 0));
     }
-    return this.sim.phase === phase;
+    return hit();
   }
 
   /**
-   * Soak-тест: n заездов подряд без отрисовки, теми же функциями, что и в эфире.
-   * Возвращает, все ли финишировали и сколько было мягких респаунов.
+   * Soak-тест: n заездов подряд без отрисовки, теми же функциями, что и в эфире
+   * (лобби и подиум сокращены). Возвращает, все ли финишировали и сколько было респаунов.
    */
   async soak(n: number): Promise<SoakReport> {
     this.soaking = true;
     const report: SoakReport = { races: 0, allFinished: true, respawns: 0, maxNoProgress: 0, perRace: [] };
+    const ses = this.session;
+    const saved = { ...ses.settings };
+    ses.updateSettings({ lobbySeconds: 5, podiumSeconds: 3 });
     try {
       for (let r = 0; r < n; r++) {
-        if (r > 0) {
-          this.raceIndex++;
-          await this.newRace();
-        }
-        const sim = this.sim;
+        const sim = ses.sim;
         let respawns = 0;
         const lastMove = new Map<number, { p: number; t: number }>();
         sim.events.on('respawn', (e) => {
@@ -372,10 +399,10 @@ export class Game {
           // После респауна машина откатывается к чекпойнту — отсчёт «без прогресса» начинаем заново.
           lastMove.delete(e.car.id);
         });
+        const startIndex = ses.raceIndex;
         let guard = 0;
-        while (sim.phase !== 'finished' && guard++ < 400 * STEP_HZ) {
-          sim.step();
-          this.lifecycle();
+        while (ses.phase !== 'podium' && guard++ < 420 * STEP_HZ) {
+          ses.step();
           if (sim.phase === 'race') {
             for (const c of sim.cars) {
               const m = lastMove.get(c.id);
@@ -397,8 +424,11 @@ export class Game {
         report.respawns += respawns;
         if (finished !== sim.cars.length) report.allFinished = false;
         report.races++;
+        // Подиум → новое лобби.
+        while (ses.raceIndex === startIndex && guard++ < 440 * STEP_HZ) ses.step();
       }
     } finally {
+      ses.updateSettings(saved);
       this.soaking = false;
     }
     return report;

@@ -3,7 +3,7 @@ import type { Simulation } from '../core/sim';
 import { ChaseCamera, spring } from './cameraRig';
 import type { CarView } from './carView';
 
-export type Shot = 'orbit' | 'chase' | 'tv' | 'overview';
+export type Shot = 'orbit' | 'chase' | 'tv' | 'overview' | 'winner';
 
 /**
  * Камера-режиссёр (раздел 9 ТЗ): облёт решётки на старте, дальше — за лидером
@@ -16,6 +16,10 @@ export class CameraDirector {
   targetId = -1;
   /** null — авто, иначе id машины, выбранной в панели. */
   manualId: number | null = null;
+  /** Сдвиг облёта влево (в лобби справа панель со списком). */
+  lobbyOffset = false;
+  /** id победителя на подиуме — камера облетает его машину. */
+  winnerId: number | null = null;
   /** Принудительный режим (тесты, панель): общий план. */
   forceOverview = false;
   private shotTime = 0;
@@ -42,6 +46,7 @@ export class CameraDirector {
     this.sinceSwitch = 0;
     this.sinceTv = 0;
     this.hot = null;
+    this.winnerId = null;
     this.chase.snap();
   }
 
@@ -75,6 +80,7 @@ export class CameraDirector {
     const view = views.get(this.targetId);
 
     if (this.forceOverview) this.setShot('overview');
+    else if (this.winnerId !== null && views.has(this.winnerId) && this.manualId === null) this.setShot('winner');
     else if (sim.phase === 'grid' || sim.phase === 'countdown') this.setShot('orbit');
     else if (this.shot === 'orbit' || this.shot === 'overview') this.setShot('chase');
 
@@ -104,11 +110,33 @@ export class CameraDirector {
         const c = new Vector3();
         for (const sl of slot) c.add(sl.pos);
         c.multiplyScalar(1 / slot.length);
-        this.orbitAngle += dt * 0.18;
-        const r = 26 + sim.cars.length * 1.2;
-        cam.position.set(c.x + Math.cos(this.orbitAngle) * r, c.y + 9, c.z + Math.sin(this.orbitAngle) * r);
-        cam.lookAt(c.x, c.y + 0.5, c.z);
+        this.orbitAngle += dt * 0.15;
+        // Решётка вытянута вдоль трассы: радиус по её длине; камера низко — машины крупно.
+        let len = 0;
+        for (const sl of slot) len = Math.max(len, sl.pos.distanceTo(c));
+        const r = 10 + len * 1.35;
+        cam.position.set(c.x + Math.cos(this.orbitAngle) * r, c.y + 3 + r * 0.3, c.z + Math.sin(this.orbitAngle) * r);
+        cam.lookAt(c.x, c.y - 1, c.z);
+        // В лобби справа панель — сдвигаем кадр, чтобы решётка была левее центра.
+        if (this.lobbyOffset) cam.translateX(r * 0.17);
         this.focus.copy(c);
+        break;
+      }
+      case 'winner': {
+        const wv = views.get(this.winnerId ?? -1);
+        if (!wv) break;
+        this.orbitAngle += dt * 0.3;
+        const r = 8.5 * Math.sqrt(wv.car.phys.scale);
+        const target = wv.pos;
+        cam.position.set(
+          target.x + Math.cos(this.orbitAngle) * r,
+          target.y + 2.6,
+          target.z + Math.sin(this.orbitAngle) * r,
+        );
+        // Смотрим выше машины — она в нижней части кадра, сверху экран подиума.
+        cam.lookAt(target.x, target.y + 3.4, target.z);
+        this.focus.copy(target);
+        this.targetId = this.winnerId ?? this.targetId;
         break;
       }
       case 'overview': {

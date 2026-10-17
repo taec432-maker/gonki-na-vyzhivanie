@@ -1,0 +1,86 @@
+import type { Session } from '../race/session';
+import { esc, formatTime } from './format';
+import { readableColor } from './nameTags';
+
+/**
+ * Экран лобби (этап 2): кто записался, очередь, обратный отсчёт и подсказка
+ * «напиши в чат». Подиум — топ-3 после заезда.
+ */
+export class LobbyScreen {
+  private readonly lobby: HTMLElement;
+  private readonly podium: HTMLElement;
+  private acc = 1;
+  private lastKey = '';
+  private podiumKey = '';
+
+  constructor(root: HTMLElement) {
+    root.insertAdjacentHTML(
+      'beforeend',
+      `<div id="lobby" class="panel hidden"></div><div id="podium" class="panel hidden"></div>`,
+    );
+    this.lobby = root.querySelector('#lobby') as HTMLElement;
+    this.podium = root.querySelector('#podium') as HTMLElement;
+  }
+
+  update(dt: number, session: Session): void {
+    this.acc += dt;
+    const ph = session.phase;
+    this.lobby.classList.toggle('hidden', ph !== 'lobby');
+    this.podium.classList.toggle('hidden', ph !== 'podium');
+    if (this.acc < 0.2) return;
+    this.acc = 0;
+    if (ph === 'lobby') this.renderLobby(session);
+    if (ph === 'podium') this.renderPodium(session);
+  }
+
+  private renderLobby(s: Session): void {
+    const cars = s.sim.cars;
+    const kw = s.settings.joinMode === 'keyword' ? `«${esc(s.settings.keyword)}»` : 'любое сообщение';
+    const key = `${cars.map((c) => c.id).join(',')}|${s.queue.length}|${Math.ceil(s.secondsLeft)}`;
+    if (key === this.lastKey) return;
+    this.lastKey = key;
+    const rows = cars
+      .map(
+        (c) => `<div class="entry${c.playerId ? '' : ' bot'}"><span class="dot" style="background:${c.color}"></span>
+        <span class="nm" style="color:${readableColor(c.color)}">${esc(c.name)}</span><span class="car">${esc(c.spec.name)}</span></div>`,
+      )
+      .join('');
+    const q = s.queue
+      .slice(0, 6)
+      .map((p) => esc(p.name))
+      .join(', ');
+    this.lobby.innerHTML = `
+      <div class="lb-head"><div class="lb-title">Заезд №${s.raceIndex + 1} · ${esc(s.sim.track.def.name)}</div>
+      <div class="lb-time">Старт через <b>${formatTime(s.secondsLeft).replace(/\.\d$/, '')}</b></div></div>
+      <div class="lb-cta">Напиши в чат ${kw} — и твоя машина на старте!</div>
+      <div class="lb-grid">${rows}</div>
+      <div class="lb-meta">На старте ${cars.length} из ${s.settings.maxCars} · кругов: ${s.settings.laps}</div>
+      ${s.queue.length ? `<div class="lb-queue">В очереди ${s.queue.length}: ${q}${s.queue.length > 6 ? '…' : ''}</div>` : ''}`;
+  }
+
+  private renderPodium(s: Session): void {
+    const res = s.lastResults;
+    const key = `${s.raceIndex}|${Math.ceil(s.secondsLeft)}`;
+    if (key === this.podiumKey) return;
+    this.podiumKey = key;
+    const top = [res[1], res[0], res[2]];
+    const cls = ['second', 'first', 'third'];
+    const place = [2, 1, 3];
+    const cols = top
+      .map((r, i) =>
+        r
+          ? `<div class="pd-col ${cls[i]}"><div class="pd-name">${esc(r.name)}</div>
+            <div class="pd-time">${r.finished && r.time !== null ? formatTime(r.time) : `${r.laps} кр.`}</div>
+            <div class="pd-step">${place[i]}</div></div>`
+          : '<div class="pd-col"></div>',
+      )
+      .join('');
+    const rest = res
+      .slice(3, 12)
+      .map((r) => `<span>${r.place}. ${esc(r.name)}</span>`)
+      .join('');
+    this.podium.innerHTML = `<div class="pd-title">Победитель — ${esc(res[0]?.name ?? '')}!</div>
+      <div class="pd-row">${cols}</div>${rest ? `<div class="pd-rest">${rest}</div>` : ''}
+      <div class="pd-next">Следующий заезд через ${Math.ceil(s.secondsLeft)} с</div>`;
+  }
+}
