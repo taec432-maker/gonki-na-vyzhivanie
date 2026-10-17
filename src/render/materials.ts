@@ -41,30 +41,25 @@ export const carMaterials = {
     ),
   rim: () =>
     cached('rim', () => new MeshStandardMaterial({ name: 'rim', color: '#b9bec6', roughness: 0.28, metalness: 1 })),
-  headlight: () =>
-    cached(
-      'headlight',
-      () =>
-        new MeshStandardMaterial({
-          name: 'headlight',
-          color: '#ffffff',
-          emissive: '#fff4dc',
-          emissiveIntensity: 2.2,
-          roughness: 0.1,
-        }),
-    ),
-  taillight: () =>
-    cached(
-      'taillight',
-      () =>
-        new MeshStandardMaterial({
-          name: 'taillight',
-          color: '#5a0000',
-          emissive: '#ff1a10',
-          emissiveIntensity: 1.6,
-          roughness: 0.3,
-        }),
-    ),
+  /** Фары и фонари одним материалом: цвет свечения — из цвета вершин. */
+  lights: () =>
+    cached('lights', () => {
+      const m = new MeshStandardMaterial({
+        name: 'lights',
+        color: '#ffffff',
+        emissive: '#ffffff',
+        emissiveIntensity: 2,
+        roughness: 0.25,
+        vertexColors: true,
+      });
+      m.onBeforeCompile = (shader) => {
+        shader.fragmentShader = shader.fragmentShader.replace(
+          'vec3 totalEmissiveRadiance = emissive;',
+          'vec3 totalEmissiveRadiance = emissive * vColor.rgb;',
+        );
+      };
+      return m;
+    }),
   metalDark: () =>
     cached(
       'metalDark',

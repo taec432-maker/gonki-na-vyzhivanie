@@ -9,10 +9,10 @@ export class ChaseCamera {
   readonly look = new Vector3();
   private readonly vel = new Vector3();
   private readonly lookVel = new Vector3();
-  distance = 9;
-  height = 3.4;
+  distance = 7.2;
+  height = 2.9;
   lookAhead = 6;
-  stiffness = 6;
+  stiffness = 10;
   private initialized = false;
   private readonly tmp = new Vector3();
   private readonly fwd = new Vector3();

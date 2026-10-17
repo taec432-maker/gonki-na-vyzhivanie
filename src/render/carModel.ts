@@ -1,7 +1,9 @@
 import type { BufferGeometry } from 'three';
 import {
   BoxGeometry,
+  Color,
   CylinderGeometry,
+  Float32BufferAttribute,
   Group,
   LatheGeometry,
   Mesh,
@@ -15,15 +17,22 @@ import { carMaterials, paintMaterial } from './materials';
 import { loft, profile, splitByGroup, type Station } from './loft';
 import { RECIPES, type Recipe } from './carRecipes';
 
+export type PartName = 'hood' | 'bumperF' | 'bumperR';
+
 export interface CarModel {
   root: Group;
   /** Кузов в системе координат тела физики (смещён на высоту подвески). */
   body: Group;
   paint: MeshPhysicalMaterial;
-  /** Отделяемые части (для повреждений). */
-  parts: { hood: Mesh | null; bumperF: Mesh | null; bumperR: Mesh | null };
   /** Сколько опустить кузов относительно центра тела физики. */
   bodyOffsetY: number;
+  /** Какие части ещё на месте. */
+  attached: Set<PartName>;
+  /**
+   * Оторвать часть (повреждения): кузов пересобирается без неё, возвращается
+   * меш части для обломка (или null, если её уже нет).
+   */
+  detach(part: PartName): Mesh | null;
 }
 
 /** Высота центра колеса относительно центра тела в покое (см. PhysVehicle: подвеска ~0.28 м). */
@@ -39,6 +48,36 @@ function push(bucket: Bucket, mat: Material, geo: BufferGeometry): void {
   }
   list.push(geo.index ? geo.toNonIndexed() : geo);
 }
+
+/** Окрашивает геометрию фары/фонаря (цвет свечения берётся из вершин, см. carMaterials.lights). */
+function tinted(geo: BufferGeometry, hex: string): BufferGeometry {
+  const g = geo.index ? geo.toNonIndexed() : geo;
+  const n = g.getAttribute('position').count;
+  const c = new Color(hex);
+  const arr = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    arr[i * 3] = c.r;
+    arr[i * 3 + 1] = c.g;
+    arr[i * 3 + 2] = c.b;
+  }
+  g.setAttribute('color', new Float32BufferAttribute(arr, 3));
+  return g;
+}
+
+function mergeList(list: BufferGeometry[]): BufferGeometry | null {
+  return mergeGeometries(
+    list.map((g) => {
+      const n = g.index ? g.toNonIndexed() : g;
+      if (n.getAttribute('uv')) n.deleteAttribute('uv');
+      if (!n.getAttribute('normal')) n.computeVertexNormals();
+      return n;
+    }),
+    false,
+  );
+}
+
+/** Материалы, которые не отбрасывают тень (мелочь — экономия draw calls в проходе теней). */
+const NO_SHADOW = new Set(['lights', 'chrome']);
 
 function box(w: number, h: number, d: number, x: number, y: number, z: number, rx = 0): BufferGeometry {
   const g = new BoxGeometry(w, h, d);
@@ -144,10 +183,10 @@ export function buildCarModel(spec: VehicleSpec, color: string): CarModel {
     );
   }
 
-  // --- Капот и бамперы (отдельные меши, чтобы отлетать при повреждениях) ---
+  // --- Капот и бамперы: слиты с кузовом, но помнятся отдельно — чтобы отлетать при повреждениях ---
+  const parts = new Map<PartName, { geo: BufferGeometry; mat: Material }>();
   const hoodT0 = recipe.hood[0];
   const hoodT1 = recipe.hood[1];
-  let hood: Mesh | null = null;
   if (hoodT1 > hoodT0) {
     const hs: Station[] = [];
     for (let i = 0; i <= 12; i++) {
@@ -161,28 +200,30 @@ export function buildCarModel(spec: VehicleSpec, color: string): CarModel {
         n: 6,
       });
     }
-    hood = new Mesh(loft(hs, { segments: 20 }), paint);
-    hood.name = 'hood';
-    hood.castShadow = true;
+    parts.set('hood', { geo: loft(hs, { segments: 20 }), mat: paint });
   }
   const bh = recipe.bumper;
-  const bumperF = new Mesh(box(W * 0.94, bh[1], 0.22, 0, bh[0], -L / 2 + 0.06), carMaterials.trim());
-  bumperF.name = 'bumper_F';
-  const bumperR = new Mesh(box(W * 0.92, bh[1], 0.2, 0, bh[0], L / 2 - 0.06), carMaterials.trim());
-  bumperR.name = 'bumper_R';
+  parts.set('bumperF', {
+    geo: box(W * 0.94, bh[1], 0.22, 0, bh[0], -L / 2 + 0.06).toNonIndexed(),
+    mat: carMaterials.trim(),
+  });
+  parts.set('bumperR', {
+    geo: box(W * 0.92, bh[1], 0.2, 0, bh[0], L / 2 - 0.06).toNonIndexed(),
+    mat: carMaterials.trim(),
+  });
 
   // --- Фары, решётка, фонари ---
   const fy = profile(recipe.belt, 0.04) - 0.1;
   for (const side of [-1, 1]) {
     push(
       bucket,
-      carMaterials.headlight(),
-      box(W * 0.2, 0.08, 0.05, side * W * 0.33, fy, -L / 2 + 0.035 + recipe.noseInset),
+      carMaterials.lights(),
+      tinted(box(W * 0.2, 0.08, 0.05, side * W * 0.33, fy, -L / 2 + 0.035 + recipe.noseInset), '#fff4dc'),
     );
     push(
       bucket,
-      carMaterials.taillight(),
-      box(W * 0.22, 0.09, 0.05, side * W * 0.32, profile(recipe.belt, 0.97) - 0.1, L / 2 - 0.02),
+      carMaterials.lights(),
+      tinted(box(W * 0.22, 0.09, 0.05, side * W * 0.32, profile(recipe.belt, 0.97) - 0.1, L / 2 - 0.02), '#ff1a10'),
     );
     // Зеркала.
     if (cab) {
@@ -195,32 +236,43 @@ export function buildCarModel(spec: VehicleSpec, color: string): CarModel {
   for (const extra of recipe.extras)
     extra(bucket, { spec, paint, push, box, profile: (p, t) => profile(p, t), recipe });
 
-  // --- Сливаем по материалам ---
+  // --- Сливаем по материалам (части — внутри своих материалов, пока не оторваны) ---
   const body = new Group();
   body.name = 'body';
-  for (const [mat, list] of bucket) {
-    const merged = mergeGeometries(
-      list.map((g) => {
-        const n = g.index ? g.toNonIndexed() : g;
-        n.deleteAttribute('uv');
-        if (!n.getAttribute('normal')) n.computeVertexNormals();
-        return n;
-      }),
-      false,
-    );
-    if (!merged) continue;
-    const mesh = new Mesh(merged, mat);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    body.add(mesh);
-  }
-  for (const m of [hood, bumperF, bumperR]) if (m) body.add(m);
-  bumperF.castShadow = bumperR.castShadow = true;
+  const attached = new Set<PartName>(parts.keys());
+  const assemble = (): void => {
+    for (const child of [...body.children]) {
+      body.remove(child);
+      (child as Mesh).geometry.dispose();
+    }
+    const all: Bucket = new Map();
+    for (const [mat, list] of bucket) all.set(mat, [...list]);
+    for (const [name, p] of parts) if (attached.has(name)) push(all, p.mat, p.geo);
+    for (const [mat, list] of all) {
+      const merged = mergeList(list);
+      if (!merged) continue;
+      const mesh = new Mesh(merged, mat);
+      mesh.castShadow = !NO_SHADOW.has(mat.name);
+      mesh.receiveShadow = true;
+      body.add(mesh);
+    }
+  };
+  assemble();
   const bodyOffsetY = NOMINAL_WHEEL_Y - r;
   body.position.y = bodyOffsetY;
   const root = new Group();
   root.add(body);
-  return { root, body, paint, parts: { hood, bumperF, bumperR }, bodyOffsetY };
+  const detach = (part: PartName): Mesh | null => {
+    const p = parts.get(part);
+    if (!p || !attached.has(part)) return null;
+    attached.delete(part);
+    assemble();
+    const m = new Mesh(p.geo.clone(), p.mat);
+    m.castShadow = true;
+    m.position.y = bodyOffsetY;
+    return m;
+  };
+  return { root, body, paint, bodyOffsetY, attached, detach };
 }
 
 /** Геометрия шины и диска (общие на все машины — рисуются инстансингом). */

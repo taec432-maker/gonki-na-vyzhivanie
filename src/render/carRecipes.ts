@@ -113,4 +113,43 @@ export const RECIPES: Partial<Record<BodyStyle, Recipe>> = {
     hood: [0.04, 0.31],
     extras: [spoiler(0.95, 0.16), exhausts(2), skirts],
   },
+  muscle: {
+    ...base,
+    n: 5,
+    taper: 0.08,
+    bumper: [0.4, 0.22],
+    bottom: [
+      [0, 0.26],
+      [0.5, 0.19],
+      [1, 0.28],
+    ],
+    belt: [
+      [0, 0.68],
+      [0.04, 0.8],
+      [0.38, 0.86],
+      [0.7, 0.9],
+      [0.96, 0.9],
+      [1, 0.78],
+    ],
+    width: [
+      [0, 0.9],
+      [0.05, 0.97],
+      [0.5, 1],
+      [0.95, 0.99],
+      [1, 0.92],
+    ],
+    cabin: { from: 0.4, to: 0.82, roof: 1.34, front: 0.32, rear: 0.45, inset: 0.84, taper: 0.22 },
+    hood: [0.03, 0.39],
+    extras: [
+      exhausts(2, 0.3),
+      // Воздухозаборник на капоте.
+      (b, ctx) =>
+        ctx.push(
+          b,
+          carMaterials.trim(),
+          ctx.box(0.55, 0.09, 0.9, 0, ctx.profile(ctx.recipe.belt, 0.2) + 0.05, zAt(ctx, 0.2)),
+        ),
+      spoiler(0.97, 0.06, 0.85),
+    ],
+  },
 };
