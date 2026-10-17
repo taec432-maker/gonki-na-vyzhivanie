@@ -1,3 +1,6 @@
+import type { GradeSettings } from './grade';
+import type { WeatherKind } from './weather';
+
 /** Пресеты освещения и погоды по локациям (раздел 9 ТЗ). HDRI — Poly Haven, CC0 (см. ASSETS.md). */
 export interface LightingPreset {
   id: string;
@@ -10,11 +13,14 @@ export interface LightingPreset {
   hemi: { sky: string; ground: string; intensity: number };
   fog: { color: string; density: number };
   exposure: number;
-  /** Цветокоррекция: насыщенность (−1..1), контраст (−1..1), оттенок (hex, смешивается мягко). */
-  grade: { saturation: number; contrast: number; brightness: number; hue: number };
+  /** Цветокоррекция под локацию (после тонемаппинга). */
+  grade: GradeSettings;
   night: boolean;
-  /** Мокрый асфальт (отражения). */
-  wet: boolean;
+  /** Мокрый асфальт: 0 — сухо, 1 — после ливня (отражения в лужах). */
+  wet: number;
+  weather: WeatherKind;
+  /** Освещённость дыма и пыли (частицы не освещаются светом сцены): 1 — день. */
+  smokeLight: number;
 }
 
 export const PRESETS: Record<string, LightingPreset> = {
@@ -28,9 +34,11 @@ export const PRESETS: Record<string, LightingPreset> = {
     hemi: { sky: '#cfe3ff', ground: '#4a4a3a', intensity: 0.3 },
     fog: { color: '#c9d6e3', density: 0.0012 },
     exposure: 1.0,
-    grade: { saturation: 0.05, contrast: 0.06, brightness: 0, hue: 0 },
+    grade: { saturation: 1.05, contrast: 1.06, brightness: 0, shadows: '#e9eef8', highlights: '#fff6e8' },
     night: false,
-    wet: false,
+    wet: 0,
+    weather: 'none',
+    smokeLight: 1,
   },
   'port-day': {
     id: 'port-day',
@@ -42,23 +50,27 @@ export const PRESETS: Record<string, LightingPreset> = {
     hemi: { sky: '#d6e4f5', ground: '#5a5650', intensity: 0.35 },
     fog: { color: '#c7d0d8', density: 0.0016 },
     exposure: 1.0,
-    grade: { saturation: 0.08, contrast: 0.08, brightness: 0, hue: 0 },
+    grade: { saturation: 1.06, contrast: 1.08, brightness: 0, shadows: '#e4ebf5', highlights: '#fff3e2' },
     night: false,
-    wet: false,
+    wet: 0,
+    weather: 'none',
+    smokeLight: 1,
   },
   'port-night': {
     id: 'port-night',
     hdri: 'dikhololo_night_1k.hdr',
-    envIntensity: 0.6,
+    envIntensity: 0.9,
     backgroundIntensity: 0.7,
     backgroundBlur: 0,
     sun: { dir: [-0.3, 0.8, 0.4], color: '#9fb4ff', intensity: 0.5 },
-    hemi: { sky: '#33415e', ground: '#1a1a1f', intensity: 0.5 },
+    hemi: { sky: '#3a4a6e', ground: '#1a1a1f', intensity: 0.8 },
     fog: { color: '#141a26', density: 0.0028 },
-    exposure: 1.15,
-    grade: { saturation: 0.1, contrast: 0.12, brightness: 0, hue: 0 },
+    exposure: 1.3,
+    grade: { saturation: 1.1, contrast: 1.1, brightness: 0, shadows: '#d6e2ff', highlights: '#ffe6c8' },
     night: true,
-    wet: false,
+    wet: 0.85,
+    weather: 'rain',
+    smokeLight: 0.3,
   },
 };
 

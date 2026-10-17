@@ -1,11 +1,11 @@
 import {
-  ACESFilmicToneMapping,
   Color,
   DirectionalLight,
   EquirectangularReflectionMapping,
   FogExp2,
   HalfFloatType,
   HemisphereLight,
+  Matrix4,
   NoToneMapping,
   PCFShadowMap,
   PerspectiveCamera,
@@ -19,18 +19,22 @@ import {
 import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
 import {
   BloomEffect,
-  BrightnessContrastEffect,
   EffectComposer,
   EffectPass,
-  HueSaturationEffect,
   RenderPass,
   SMAAEffect,
   ToneMappingEffect,
   ToneMappingMode,
   VignetteEffect,
 } from 'postprocessing';
+import { N8AOPostPass } from 'n8ao';
+import { GradeEffect } from './grade';
+import { CameraMotionBlur } from './motionBlur';
 import type { LightingPreset } from './presets';
 import { QUALITY, type QualityLevel, type QualitySettings } from './quality';
+
+const ORIGIN = new Vector3();
+const UP = new Vector3(0, 1, 0);
 
 export interface FrameStats {
   drawCalls: number;
@@ -41,7 +45,9 @@ export interface FrameStats {
 
 /**
  * Сцена, камера, свет, HDRI и пост-обработка (pmndrs/postprocessing):
- * bloom → тонемаппинг ACES → цветокоррекция → виньетка; SMAA/MSAA по качеству.
+ * AO (N8AO) → размытие в движении → bloom → тонемаппинг ACES → цветокоррекция локации →
+ * виньетка; MSAA или SMAA. Тень солнца — одна карта, вписанная в видимую часть трассы.
+ * Что включено — решает переключатель качества (quality.ts).
  */
 export class Renderer {
   readonly renderer: WebGLRenderer;
@@ -56,15 +62,24 @@ export class Renderer {
   quality: QualitySettings = QUALITY.high;
   /** Доп. множитель разрешения с ползунка панели (0.5..1). */
   resolutionScale = 1;
-  private preset: LightingPreset | null = null;
+  preset: LightingPreset | null = null;
   private bloom: BloomEffect | null = null;
-  private hue: HueSaturationEffect | null = null;
-  private bc: BrightnessContrastEffect | null = null;
+  private grade: GradeEffect | null = null;
+  private ao: N8AOPostPass | null = null;
+  private blur: CameraMotionBlur | null = null;
   private readonly sunOffset = new Vector3();
+  private readonly sunCenter = new Vector3();
+  private readonly sunFwd = new Vector3();
+  private readonly sunLs = new Vector3();
+  private readonly sunInv = new Matrix4();
+  private readonly sunRot = new Matrix4();
   private readonly base: string;
+  /** Выключенные части картинки (профиль кадра): ao, blur, bloom. */
+  readonly off = new Set<string>();
 
-  constructor(canvas: HTMLCanvasElement, base: string) {
+  constructor(canvas: HTMLCanvasElement, base: string, off: readonly string[] = []) {
     this.base = base;
+    for (const o of off) this.off.add(o);
     this.renderer = new WebGLRenderer({
       canvas,
       antialias: false,
@@ -82,6 +97,7 @@ export class Renderer {
     this.sun.castShadow = true;
     this.sun.shadow.bias = -0.0004;
     this.sun.shadow.normalBias = 0.03;
+    this.sun.shadow.mapSize.set(this.quality.shadowSize, this.quality.shadowSize);
     this.scene.add(this.sun, this.sun.target, this.hemi);
     this.buildComposer();
   }
@@ -91,23 +107,40 @@ export class Renderer {
     const q = this.quality;
     this.composer = new EffectComposer(this.renderer, { frameBufferType: HalfFloatType, multisampling: q.msaa });
     this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.bloom = q.bloom
-      ? new BloomEffect({
-          intensity: 0.55,
-          luminanceThreshold: 0.9,
-          luminanceSmoothing: 0.2,
-          mipmapBlur: true,
-          radius: 0.7,
-        })
-      : null;
+    this.ao = null;
+    if (q.ao && !this.off.has('ao')) {
+      const ao = new N8AOPostPass(this.scene, this.camera, 1920, 1080);
+      ao.autoDetectTransparency = false;
+      ao.configuration.transparencyAware = false;
+      ao.configuration.aoRadius = 2.2;
+      ao.configuration.distanceFalloff = 1.2;
+      ao.configuration.intensity = 2.4;
+      ao.configuration.halfRes = q.aoHalfRes;
+      ao.configuration.depthAwareUpsampling = true;
+      ao.configuration.gammaCorrection = false;
+      ao.setQualityMode(q.aoHalfRes ? 'Low' : 'Medium');
+      this.composer.addPass(ao);
+      this.ao = ao;
+    }
+    this.blur = q.motionBlur && !this.off.has('blur') ? new CameraMotionBlur(0.5) : null;
+    if (this.blur) this.composer.addPass(new EffectPass(this.camera, this.blur));
+    this.bloom =
+      q.bloom && !this.off.has('bloom')
+        ? new BloomEffect({
+            intensity: 0.55,
+            luminanceThreshold: 0.9,
+            luminanceSmoothing: 0.2,
+            mipmapBlur: true,
+            radius: 0.7,
+          })
+        : null;
     const tone = new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC });
-    this.hue = new HueSaturationEffect({ saturation: 0 });
-    this.bc = new BrightnessContrastEffect({ contrast: 0 });
+    this.grade = new GradeEffect();
     const vignette = new VignetteEffect({ offset: 0.3, darkness: 0.45 });
-    const effects = [...(this.bloom ? [this.bloom] : []), tone, this.bc, this.hue, vignette];
+    const effects = [...(this.bloom ? [this.bloom] : []), tone, this.grade, vignette];
     this.composer.addPass(new EffectPass(this.camera, ...effects));
     if (q.msaa === 0) this.composer.addPass(new EffectPass(this.camera, new SMAAEffect()));
-    if (this.preset) this.applyGrade(this.preset);
+    if (this.preset) this.grade.apply(this.preset.grade);
     this.resize();
   }
 
@@ -167,43 +200,71 @@ export class Renderer {
     this.sunOffset
       .set(...p.sun.dir)
       .normalize()
-      .multiplyScalar(120);
+      .multiplyScalar(200);
     this.hemi.color.set(p.hemi.sky);
     this.hemi.groundColor.set(p.hemi.ground);
     this.hemi.intensity = p.hemi.intensity;
     this.scene.fog = new FogExp2(new Color(p.fog.color), p.fog.density);
     this.renderer.toneMappingExposure = p.exposure;
-    this.applyGrade(p);
+    this.grade?.apply(p.grade);
   }
 
-  private applyGrade(p: LightingPreset): void {
-    if (this.hue) this.hue.saturation = p.grade.saturation;
-    if (this.bc) {
-      this.bc.contrast = p.grade.contrast;
-      this.bc.brightness = p.grade.brightness;
+  /**
+   * Тень солнца — одна карта высокого разрешения, вписанная в видимую часть трассы:
+   * квадрат вокруг точки впереди камеры (на «Высоком» 4096 на ~180 м — 4,4 см на тексель).
+   * Привязка к текселям — тень не «дрожит» при движении камеры.
+   */
+  updateSun(focus: Vector3, overview = false): void {
+    const radius = overview ? 220 : this.quality.shadowRadius;
+    const center = this.sunCenter;
+    if (overview) center.copy(focus);
+    else {
+      const fwd = this.camera.getWorldDirection(this.sunFwd).setY(0).normalize();
+      // Центр — между машиной в кадре и точкой впереди камеры: тени и у машины, и вдали.
+      center
+        .copy(this.camera.position)
+        .addScaledVector(fwd, radius * 0.55)
+        .lerp(focus, 0.35);
     }
+    const cam = this.sun.shadow.camera;
+    if (cam.right !== radius) {
+      cam.left = cam.bottom = -radius;
+      cam.right = cam.top = radius;
+      cam.near = 1;
+      cam.far = 500;
+      cam.updateProjectionMatrix();
+    }
+    const texel = (radius * 2) / this.sun.shadow.mapSize.x;
+    // Округление в системе света: сдвиг ровно на целые тексели вдоль осей карты.
+    const rot = this.sunRot.lookAt(this.sunOffset, ORIGIN, UP);
+    const ls = this.sunLs.copy(center).applyMatrix4(this.sunInv.copy(rot).transpose());
+    ls.x = Math.round(ls.x / texel) * texel;
+    ls.y = Math.round(ls.y / texel) * texel;
+    ls.applyMatrix4(rot);
+    this.sun.target.position.copy(ls);
+    this.sun.position.copy(ls).add(this.sunOffset);
   }
 
-  /** Тень от солнца следует за точкой интереса камеры. */
-  updateSun(focus: Vector3, radius = 70): void {
-    const cam = this.sun.shadow.camera;
-    cam.left = cam.bottom = -radius;
-    cam.right = cam.top = radius;
-    cam.near = 1;
-    cam.far = 400;
-    cam.updateProjectionMatrix();
-    this.sun.target.position.copy(focus);
-    this.sun.position.copy(focus).add(this.sunOffset);
-    // Привязка к текселям — тень не «дрожит» при движении камеры.
-    const texel = (radius * 2) / this.sun.shadow.mapSize.x;
-    this.sun.position.x = Math.round(this.sun.position.x / texel) * texel;
-    this.sun.position.z = Math.round(this.sun.position.z / texel) * texel;
-    this.sun.target.position.x = Math.round(this.sun.target.position.x / texel) * texel;
-    this.sun.target.position.z = Math.round(this.sun.target.position.z / texel) * texel;
+  /** Что сейчас включено в картинке (для статуса панели и профиля кадра). */
+  get features(): string[] {
+    const q = this.quality;
+    return [
+      `тени ${q.shadowSize} на ${q.shadowRadius * 2} м`,
+      ...(this.ao ? [q.aoHalfRes ? 'AO ½' : 'AO'] : []),
+      ...(this.blur ? ['motion blur'] : []),
+      ...(this.bloom ? ['bloom'] : []),
+      q.msaa ? `MSAA×${q.msaa}` : 'SMAA',
+    ];
+  }
+
+  /** Резкая смена плана камеры: без размытия «перелёта». */
+  cut(): void {
+    this.blur?.cut();
   }
 
   render(dt: number): FrameStats {
     this.renderer.info.reset();
+    this.blur?.updateCamera(this.camera, dt);
     this.composer.render(dt);
     const i = this.renderer.info;
     return {
@@ -213,9 +274,6 @@ export class Renderer {
       geometries: i.memory.geometries,
     };
   }
-
-  /** Тонемаппинг ACES делает пост-обработка; это нужно, если пост выключен. */
-  static readonly fallbackToneMapping = ACESFilmicToneMapping;
 
   dispose(): void {
     this.composer.dispose();

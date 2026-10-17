@@ -8,10 +8,13 @@ export interface QualitySettings {
   renderScale: number;
   maxPixelRatio: number;
   shadowSize: number;
-  shadowCascades: number;
+  /** Полуразмер области теней вокруг камеры, м. */
+  shadowRadius: number;
   msaa: number;
   bloom: boolean;
   ao: boolean;
+  /** AO в половинном разрешении (дешевле). */
+  aoHalfRes: boolean;
   motionBlur: boolean;
   /** Множитель числа частиц. */
   particles: number;
@@ -23,11 +26,12 @@ export const QUALITY: Record<QualityLevel, QualitySettings> = {
     label: 'Высокое',
     renderScale: 1,
     maxPixelRatio: 2,
-    shadowSize: 2048,
-    shadowCascades: 3,
+    shadowSize: 4096,
+    shadowRadius: 90,
     msaa: 4,
     bloom: true,
     ao: true,
+    aoHalfRes: false,
     motionBlur: true,
     particles: 1,
   },
@@ -37,10 +41,11 @@ export const QUALITY: Record<QualityLevel, QualitySettings> = {
     renderScale: 0.85,
     maxPixelRatio: 1.5,
     shadowSize: 2048,
-    shadowCascades: 2,
+    shadowRadius: 75,
     msaa: 2,
     bloom: true,
     ao: true,
+    aoHalfRes: true,
     motionBlur: false,
     particles: 0.7,
   },
@@ -50,10 +55,11 @@ export const QUALITY: Record<QualityLevel, QualitySettings> = {
     renderScale: 1,
     maxPixelRatio: 1,
     shadowSize: 2048,
-    shadowCascades: 2,
+    shadowRadius: 70,
     msaa: 0,
     bloom: true,
     ao: false,
+    aoHalfRes: true,
     motionBlur: false,
     particles: 0.6,
   },
