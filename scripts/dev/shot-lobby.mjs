@@ -1,12 +1,19 @@
 import { chromium } from '@playwright/test';
 const [out, viewers = '20', extra = '', w = '1920', h = '1080'] = process.argv.slice(2);
-const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const browser = await chromium.launch({
+  args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
+});
 const page = await browser.newPage({ viewport: { width: +w, height: +h } });
-page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') console.info('[console]', m.type(), m.text()); });
+page.on('console', (m) => {
+  if (m.type() === 'error' || m.type() === 'warning') console.info('[console]', m.type(), m.text());
+});
 page.on('pageerror', (e) => console.info('[pageerror]', e.message));
 await page.goto(`http://127.0.0.1:8091/?seed=42&bridge=off&fresh&quality=broadcast${extra}`);
 await page.waitForFunction(() => window.__game?.ready, null, { timeout: 60000 });
-await page.evaluate((n) => { window.__game.mockViewers(n); window.__game.advance(120); }, +viewers);
+await page.evaluate((n) => {
+  window.__game.mockViewers(n);
+  window.__game.advance(120);
+}, +viewers);
 const start = await page.evaluate(() => window.__game.frameCount);
 await page.waitForFunction((n) => window.__game.frameCount > n + 3, start, { timeout: 120000 });
 const st = await page.evaluate(() => window.__game.status());
