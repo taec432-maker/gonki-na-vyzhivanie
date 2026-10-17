@@ -31,7 +31,7 @@ jobs:
         run: npm ci
       - name: Проверки (tsc, eslint, vitest)
         if: steps.has.outputs.yes == 'true'
-        run: npm run check:ci --if-present
+        run: npm run check:ci
       - name: Сборка
         if: steps.has.outputs.yes == 'true'
         run: npm run build
@@ -49,6 +49,25 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
+  e2e:
+    # Smoke в headless Chromium (SwiftShader). Не блокирует публикацию — это проверка, а не сборка.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - run: npx playwright test e2e/smoke.spec.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-results
+          path: |
+            test-results
+            docs/screenshots
   deploy:
     needs: build
     runs-on: ubuntu-latest

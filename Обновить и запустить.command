@@ -28,7 +28,7 @@ npm run build || { echo "✖ Сборка не удалась"; read -r -p "Ente
 lsof -ti tcp:$PORT | xargs kill 2>/dev/null
 
 echo "▶ Запускаю сервер на http://127.0.0.1:$PORT"
-nohup npx --yes serve -s dist -l $PORT >/dev/null 2>&1 &
+nohup node scripts/serve.mjs --port $PORT >/tmp/gonki-server.log 2>&1 &
 sleep 2
 open "http://127.0.0.1:$PORT/"
 echo
