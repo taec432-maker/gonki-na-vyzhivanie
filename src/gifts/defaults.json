@@ -1,0 +1,14 @@
+{
+  "tiers": [
+    { "min": 1, "max": 9, "effect": "nitro", "power": 1 },
+    { "min": 10, "max": 49, "effect": "rocket", "power": 1 },
+    { "min": 50, "max": 99, "effect": "repairOrOil", "power": 1 },
+    { "min": 100, "max": 299, "effect": "shield", "power": 1 },
+    { "min": 300, "max": 499, "effect": "mines", "power": 1 },
+    { "min": 500, "max": 999, "effect": "emp", "power": 1 },
+    { "min": 1000, "max": 4999, "effect": "monster", "power": 1 },
+    { "min": 5000, "max": 999999999, "effect": "armageddon", "power": 1 }
+  ],
+  "overrides": [],
+  "likes": { "target": 500, "nitroSeconds": 3 }
+}

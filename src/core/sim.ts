@@ -3,6 +3,7 @@ import { Quaternion, Vector3 } from 'three';
 import { AiPilot, rollTraits, type Character, type Hazard, type Neighbor } from '../ai/pilot';
 import { computeRacingLine } from '../ai/racingLine';
 import { buildSpeedProfile } from '../ai/speedProfile';
+import { Combat } from '../combat/combat';
 import { buildTrackColliders, floorHeight, type TrackColliders } from '../physics/trackCollider';
 import { PhysVehicle, type Controls } from '../physics/vehicle';
 import { RAPIER as R, createWorld, initPhysics } from '../physics/world';
@@ -54,6 +55,9 @@ export interface SimCar {
   ghostUntil: number;
   /** Счётчик столкновений (для статистики и камеры). */
   hits: number;
+  /** Очки здоровья (раздел 6 ТЗ): из JSON машины. */
+  hp: number;
+  maxHp: number;
 }
 
 export interface RaceResult {
@@ -107,6 +111,7 @@ export class Simulation {
   readonly racingLine: Float32Array;
   private readonly speedProfile: Float32Array;
   readonly hazards: Hazard[] = [];
+  readonly combat: Combat;
   tick = 0;
   phase: Phase = 'grid';
   phaseTick = 0;
@@ -130,6 +135,7 @@ export class Simulation {
     this.racingLine = computeRacingLine(this.track);
     this.speedProfile = buildSpeedProfile(this.track.path, this.racingLine, 9.5, 7.5, 90);
     this.eventQueue = new R.EventQueue(true);
+    this.combat = new Combat(this, this.rng.fork('combat'));
     let minY = Infinity;
     for (const sm of this.track.path.samples) minY = Math.min(minY, sm.pos.y);
     this.minY = minY;
@@ -193,6 +199,8 @@ export class Simulation {
       slot: index,
       ghostUntil: 0,
       hits: 0,
+      hp: entry.spec.hp,
+      maxHp: entry.spec.hp,
     };
     const pr = this.track.path.project(t.x, t.y, t.z);
     car.s = pr.s;
@@ -208,6 +216,7 @@ export class Simulation {
   }
 
   removeCar(car: SimCar): void {
+    this.combat?.forget(car.id);
     const i = this.cars.indexOf(car);
     if (i >= 0) this.cars.splice(i, 1);
     this.tracker.remove(car.id);
@@ -310,6 +319,7 @@ export class Simulation {
   step(): void {
     const path = this.track.path;
     const racing = this.phase === 'race' || this.phase === 'finished';
+    if (racing) this.combat.activateQueue();
     const neighbors: Neighbor[] = this.cars.map((c) => ({
       id: c.id,
       s: c.s,
@@ -325,6 +335,7 @@ export class Simulation {
         const sf = SURFACES[this.track.surfaceAt(car.s, car.d)];
         ph.gripMul = sf.grip;
         ph.rollingDrag = sf.drag;
+        this.combat.applyModifiers(car);
         const decision = car.pilot.drive(
           this.tick,
           this.track,
@@ -394,6 +405,7 @@ export class Simulation {
       // Улетел вниз (обрыв, за пределы) — вернуть на трассу.
       if (racing && t.y < Math.min(pr.y, this.minY) - (this.track.def.fallDepth ?? 12)) this.respawn(car, 'fall');
     }
+    if (racing) this.combat.postStep();
     this.updatePhase();
     this.tick++;
     this.phaseTick++;
@@ -429,6 +441,7 @@ export class Simulation {
   }
 
   dispose(): void {
+    this.combat.dispose();
     this.events.clear();
     this.eventQueue.free();
     this.world.free();
