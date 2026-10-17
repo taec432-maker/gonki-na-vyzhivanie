@@ -13,6 +13,14 @@ export interface UrlParams {
   laps: number | null;
   /** Не сохранять/не читать localStorage (чистые тесты). */
   fresh: boolean;
+  /** Просмотр: другое освещение трассы (id пресета, например port-night). */
+  light: string | null;
+  /** Просмотр: погода поверх пресета (rain | snow | dust | none). */
+  weather: string | null;
+  /** Просмотр: все машины — одной модели (id машины, например supercar). */
+  car: string | null;
+  /** Профиль кадра: выключить части картинки (?off=ao,blur,bloom) — сравнить их цену. */
+  off: string[];
 }
 
 export function readParams(search: string = typeof location !== 'undefined' ? location.search : ''): UrlParams {
@@ -38,5 +46,9 @@ export function readParams(search: string = typeof location !== 'undefined' ? lo
     bots: num('bots'),
     laps: num('laps'),
     fresh: p.has('fresh'),
+    light: p.get('light'),
+    weather: p.get('weather'),
+    car: p.get('car'),
+    off: (p.get('off') ?? '').split(',').filter(Boolean),
   };
 }

@@ -9,13 +9,17 @@ import { BridgeClient, type BridgeStatus } from './bridge/client';
 import { Sfx } from './audio/sfx';
 import { sanitizeMapping } from './gifts/mapping';
 import { EffectsRenderer } from './render/fx';
+import { preloadCarModels } from './render/glbCar';
+import { Weather, type WeatherKind } from './render/weather';
+import { WheelFx } from './render/wheelFx';
+import { makeWet } from './render/wet';
 import { BridgeIndicator, EventFeed, LikeBar } from './hud/feed';
 import { readableColor } from './hud/nameTags';
 import type { BridgeEnvelope } from './bridge/protocol';
 import { Session, type SessionSettings } from './race/session';
 import { CarView } from './render/carView';
 import { CameraDirector } from './render/director';
-import { presetById } from './render/presets';
+import { PRESETS, presetById, type LightingPreset } from './render/presets';
 import { buildProps } from './render/props';
 import { isQualityLevel } from './render/quality';
 import { Renderer, type FrameStats } from './render/renderer';
@@ -50,6 +54,10 @@ export interface GameStatus {
   simMs: number;
   /** Время подготовки кадра на процессоре без отрисовки, мс. */
   cpuMs: number;
+  /** Время вызова отрисовки, мс (на программном GPU это и есть растеризация). */
+  renderMs: number;
+  /** Что включено в картинке (тени, AO, размытие…). */
+  features: string[];
   triangles: number;
   camera: { manualId: number | null; targetId: number; shot: string };
   standings: { id: number; name: string; color: string; lap: number; finished: boolean; playerId: string | null }[];
@@ -90,6 +98,10 @@ export class Game {
   private lobby!: LobbyScreen;
   nameTags!: NameTags;
   fx!: EffectsRenderer;
+  private weather!: Weather;
+  private wheelFx!: WheelFx;
+  private lastShot = '';
+  private lastTarget = -1;
   feed!: EventFeed;
   private likeBar!: LikeBar;
   private bridgeInd!: BridgeIndicator;
@@ -106,6 +118,7 @@ export class Game {
   private hudFps: HTMLElement;
   private simMsAvg = 0;
   private cpuMsAvg = 0;
+  private renderMsAvg = 0;
   private soaking = false;
   /** Сколько кадров отрисовано (тесты ждут кадры, а не секунды — SwiftShader медленный). */
   frameCount = 0;
@@ -115,7 +128,7 @@ export class Game {
   constructor(canvas: HTMLCanvasElement, params: UrlParams) {
     this.params = params;
     const base = import.meta.env.BASE_URL;
-    this.renderer = new Renderer(canvas, base);
+    this.renderer = new Renderer(canvas, base, params.off);
     this.channel = new LinkChannel('game', relayUrlFor(location));
     this.hudSpeed = document.getElementById('hud-speed') as HTMLElement;
     this.hudFps = document.getElementById('hud-fps') as HTMLElement;
@@ -155,11 +168,18 @@ export class Game {
     this.wheels = new WheelRenderer(this.renderer.scene);
     this.fx = new EffectsRenderer(this.renderer.scene);
     this.fx.setDensity(this.renderer.quality.particles);
+    this.weather = new Weather(this.renderer.scene);
+    this.wheelFx = new WheelFx(this.renderer.scene, this.fx.smoke);
+    onProgress(0.2, 'Машины');
+    await preloadCarModels(VEHICLES, import.meta.env.BASE_URL);
     this.session = await Session.create({
       seed: this.params.seed,
       settings: this.settings.session,
       trackFor: this.trackFor,
-      vehiclesFor: () => VEHICLES,
+      vehiclesFor: () => {
+        const only = VEHICLES.filter((v) => v.id === this.params.car);
+        return only.length ? only : VEHICLES;
+      },
     });
     this.session.mapping = this.settings.gifts;
     this.loadLeaderboard();
@@ -181,6 +201,7 @@ export class Game {
     ev.on('race-created', ({ sim }) => {
       this.director.reset();
       this.fx?.bind(sim);
+      this.wheelFx?.setTrack(sim.track);
       for (const m of this.debrisMeshes.values()) this.renderer.scene.remove(m);
       this.debrisMeshes.clear();
       sim.events.on('part', ({ car, debris }) => {
@@ -284,12 +305,27 @@ export class Game {
   private async ensureTrack(def: TrackDef): Promise<void> {
     if (this.trackVisual?.id === def.id) return;
     if (this.trackVisual) this.renderer.scene.remove(this.trackVisual.visual.group, this.trackVisual.props);
-    await this.renderer.applyPreset(presetById(def.lighting));
+    const preset = this.presetFor(def);
+    await this.renderer.applyPreset(preset);
     const visual = buildTrackVisual(this.sim.track);
+    if (preset.wet > 0) for (const m of visual.wetMaterials) makeWet(m, preset.wet);
     const props = buildProps(this.sim.track);
+    const w = this.params.weather;
+    const kind: WeatherKind = w === 'rain' || w === 'snow' || w === 'dust' || w === 'none' ? w : preset.weather;
+    this.weather.set(kind, this.renderer.quality.particles);
+    this.wheelFx.setTrack(this.sim.track);
+    this.wheelFx.wet = preset.wet > 0;
+    this.fx.smoke.setLight(preset.smokeLight);
     this.renderer.scene.add(visual.group, props.group);
     this.trackVisual = { id: def.id, visual, props: props.group };
+    this.director.chase.occluders = [props.group];
     this.loadingTrack = null;
+  }
+
+  /** Освещение трассы; ?light= в адресе — посмотреть трассу в другом пресете. */
+  private presetFor(def: TrackDef): LightingPreset {
+    const id = this.params.light;
+    return id && PRESETS[id] ? (PRESETS[id] as LightingPreset) : presetById(def.lighting);
   }
 
   /** Сообщение в формате Bridge (настоящее или мок) → разбор → сессия. Один путь для всех. */
@@ -410,6 +446,8 @@ export class Game {
       case 'quality':
         if (isQualityLevel(payload)) {
           this.renderer.setQuality(payload);
+          this.fx.setDensity(this.renderer.quality.particles);
+          this.weather.set(this.weather.kind, this.renderer.quality.particles);
           this.settings.quality = payload;
           this.persist();
         }
@@ -427,8 +465,10 @@ export class Game {
         break;
       case 'camera':
         if (payload === 'overview') this.director.forceOverview = true;
+        else if (payload === 'closeup') this.director.closeUp = !this.director.closeUp;
         else if (payload === 'auto' || payload === null) {
           this.director.forceOverview = false;
+          this.director.closeUp = false;
           this.director.manualId = null;
         } else if (typeof payload === 'number') {
           this.director.forceOverview = false;
@@ -505,6 +545,8 @@ export class Game {
       cars: sim?.cars.length ?? 0,
       simMs: +this.simMsAvg.toFixed(3),
       cpuMs: +this.cpuMsAvg.toFixed(3),
+      renderMs: +this.renderMsAvg.toFixed(2),
+      features: this.renderer.features,
       triangles: this.lastStats.triangles,
       camera: { manualId: this.director.manualId, targetId: this.director.targetId, shot: this.director.shot },
       standings: (sim?.standings() ?? []).map((c) => ({
@@ -559,7 +601,12 @@ export class Game {
       this.director.lobbyOffset = this.session.phase === 'lobby';
       this.director.winnerId = this.session.phase === 'podium' ? (this.sim.standings()[0]?.id ?? null) : null;
       const focus = this.director.update(dt, this.renderer.camera, this.sim, this.views);
-      this.renderer.updateSun(focus, this.director.shot === 'overview' ? 220 : 70);
+      if (this.director.shot !== this.lastShot || this.director.targetId !== this.lastTarget) {
+        this.renderer.cut();
+        this.lastShot = this.director.shot;
+        this.lastTarget = this.director.targetId;
+      }
+      this.renderer.updateSun(focus, this.director.shot === 'overview');
       const target = this.views.get(this.director.targetId);
       const racing = this.session.phase === 'race' || this.session.phase === 'countdown';
       this.hudSpeed.textContent =
@@ -580,6 +627,11 @@ export class Game {
         this.views,
         this.renderer.renderer.domElement.clientHeight || window.innerHeight,
       );
+      // LOD машин: дальше 45 м — без мелких деталей.
+      const camPos = this.renderer.camera.position;
+      for (const v of this.views.values()) v.setNear(v.pos.distanceToSquared(camPos) < 45 * 45);
+      this.wheelFx.update(dt, this.views);
+      this.weather.update(dt, this.renderer.camera);
       if (this.fx.shake > 0 && this.director.shot !== 'overview') {
         const k = this.fx.shake * this.fx.shake * 0.35;
         this.renderer.camera.position.x += (Math.random() - 0.5) * k;
@@ -593,7 +645,9 @@ export class Game {
         document.getElementById('podium'),
       ]);
       this.cpuMsAvg += (performance.now() - t0 - this.cpuMsAvg) * 0.05;
+      const r0 = performance.now();
       this.lastStats = this.renderer.render(dt);
+      this.renderMsAvg += (performance.now() - r0 - this.renderMsAvg) * 0.1;
       this.frameCount++;
       this.hudFps.textContent = `${Math.round(this.meter.fps())} fps · ${this.meter.median().toFixed(1)} мс`;
       // Статус панели — по настоящим часам (dt кадра ограничен 0,1 с и на медленном GPU «отстаёт»).

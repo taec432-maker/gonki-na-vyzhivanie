@@ -3,7 +3,7 @@ import type { Simulation } from '../core/sim';
 import { ChaseCamera, spring } from './cameraRig';
 import type { CarView } from './carView';
 
-export type Shot = 'orbit' | 'chase' | 'tv' | 'overview' | 'winner';
+export type Shot = 'orbit' | 'chase' | 'tv' | 'overview' | 'winner' | 'closeup';
 
 /**
  * Камера-режиссёр (раздел 9 ТЗ): облёт решётки на старте, дальше — за лидером
@@ -22,6 +22,8 @@ export class CameraDirector {
   winnerId: number | null = null;
   /** Принудительный режим (тесты, панель): общий план. */
   forceOverview = false;
+  /** Крупный план: медленный облёт машины, за которой следим (кнопка в панели). */
+  closeUp = false;
   private shotTime = 0;
   private sinceSwitch = 0;
   private sinceTv = 0;
@@ -80,9 +82,10 @@ export class CameraDirector {
     const view = views.get(this.targetId);
 
     if (this.forceOverview) this.setShot('overview');
+    else if (this.closeUp && view) this.setShot('closeup');
     else if (this.winnerId !== null && views.has(this.winnerId) && this.manualId === null) this.setShot('winner');
     else if (sim.phase === 'grid' || sim.phase === 'countdown') this.setShot('orbit');
-    else if (this.shot === 'orbit' || this.shot === 'overview') this.setShot('chase');
+    else if (this.shot === 'orbit' || this.shot === 'overview' || this.shot === 'closeup') this.setShot('chase');
 
     if (this.shot === 'chase' && this.manualId === null && !this.hot) {
       this.sinceTv += dt;
@@ -137,6 +140,18 @@ export class CameraDirector {
         cam.lookAt(target.x, target.y + 3.4, target.z);
         this.focus.copy(target);
         this.targetId = this.winnerId ?? this.targetId;
+        break;
+      }
+      case 'closeup': {
+        if (!view) break;
+        this.orbitAngle += dt * 0.25;
+        const r = 6.2 * Math.sqrt(view.car.phys.scale);
+        // Угол облёта — относительно машины: камера сбоку-спереди, машина в центре кадра.
+        const a = view.car.phys.heading() + 0.9 + Math.sin(this.orbitAngle) * 0.6;
+        // Направление «вперёд» машины — (sin h, −cos h); поворачиваем его на угол облёта.
+        cam.position.set(view.pos.x + Math.sin(a) * r, view.pos.y + 1.5, view.pos.z - Math.cos(a) * r);
+        cam.lookAt(view.pos.x, view.pos.y + 0.5, view.pos.z);
+        this.focus.copy(view.pos);
         break;
       }
       case 'overview': {

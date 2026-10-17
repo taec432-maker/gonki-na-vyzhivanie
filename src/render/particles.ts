@@ -72,10 +72,11 @@ const VERT = /* glsl */ `
 `;
 const FRAG = /* glsl */ `
   uniform sampler2D map;
+  uniform float light;
   varying vec4 vColor;
   void main() {
     vec4 t = texture2D(map, gl_PointCoord);
-    gl_FragColor = vec4(vColor.rgb, vColor.a * t.a);
+    gl_FragColor = vec4(vColor.rgb * light, vColor.a * t.a);
     if (gl_FragColor.a < 0.004) discard;
   }
 `;
@@ -124,7 +125,7 @@ export class ParticleSystem {
     this.mat = new ShaderMaterial({
       vertexShader: VERT,
       fragmentShader: FRAG,
-      uniforms: { map: { value: softTexture() }, scale: { value: 600 } },
+      uniforms: { map: { value: softTexture() }, scale: { value: 600 }, light: { value: 1 } },
       transparent: true,
       depthWrite: false,
       blending,
@@ -133,6 +134,14 @@ export class ParticleSystem {
     this.points.frustumCulled = false;
     this.points.renderOrder = blending === NormalBlending ? 2 : 3;
     scene.add(this.points);
+  }
+
+  /**
+   * Освещённость частиц (дым и пыль не светятся сами): ночью темнее.
+   * Для огня и искр (они светятся) остаётся 1.
+   */
+  setLight(k: number): void {
+    this.mat.uniforms.light!.value = k;
   }
 
   emit(o: EmitOptions): void {

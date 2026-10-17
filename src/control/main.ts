@@ -63,6 +63,7 @@ app.innerHTML = `
     <div class="row">
       <button id="cam-auto">Авто (режиссёр)</button>
       <button id="cam-overview">Общий план</button>
+      <button id="cam-closeup">Крупный план вкл/выкл</button>
     </div>
     <div class="muted">Следить за машиной:</div>
     <div class="row" id="cam-cars"></div>
@@ -119,6 +120,9 @@ const standingsEl = document.getElementById('standings') as HTMLElement;
 (document.getElementById('cam-auto') as HTMLElement).addEventListener('click', () => channel.send('camera', 'auto'));
 (document.getElementById('cam-overview') as HTMLElement).addEventListener('click', () =>
   channel.send('camera', 'overview'),
+);
+(document.getElementById('cam-closeup') as HTMLElement).addEventListener('click', () =>
+  channel.send('camera', 'closeup'),
 );
 camCars.addEventListener('click', (e) => {
   const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-car]');

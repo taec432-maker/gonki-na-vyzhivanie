@@ -172,6 +172,8 @@ export interface TrackVisual {
   group: Group;
   roadMaterial: MeshStandardMaterial;
   materials: Material[];
+  /** Что намокает под дождём: асфальт, поребрики, бетон вокруг (см. wet.ts). */
+  wetMaterials: MeshStandardMaterial[];
 }
 
 export function buildTrackVisual(track: Track): TrackVisual {
@@ -318,5 +320,6 @@ export function buildTrackVisual(track: Track): TrackVisual {
   ground.receiveShadow = true;
   group.add(ground);
 
-  return { group, roadMaterial, materials };
+  const wetMaterials = [roadMaterial, kerb, checker, ...(groundKey === 'concrete' ? [groundMat] : [])];
+  return { group, roadMaterial, materials, wetMaterials };
 }

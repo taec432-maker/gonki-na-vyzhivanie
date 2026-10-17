@@ -1,4 +1,4 @@
-import { Vector3, type PerspectiveCamera, type Quaternion } from 'three';
+import { Raycaster, Vector3, type Object3D, type PerspectiveCamera, type Quaternion } from 'three';
 
 /**
  * Камера за машиной с плавным догоном (критически демпфированная пружина).
@@ -16,6 +16,11 @@ export class ChaseCamera {
   private initialized = false;
   private readonly tmp = new Vector3();
   private readonly fwd = new Vector3();
+  private readonly ray = new Raycaster();
+  private readonly from = new Vector3();
+  private readonly dir = new Vector3();
+  /** Постройки (краны, склады, контейнеры): камера не должна оказаться за ними. */
+  occluders: Object3D[] = [];
 
   /** Мгновенно поставить камеру (смена цели без «перелёта» через полкарты). */
   snap(): void {
@@ -41,6 +46,18 @@ export class ChaseCamera {
     spring(this.pos, this.vel, desired, this.stiffness, dt);
     spring(this.look, this.lookVel, lookAt, this.stiffness * 1.6, dt);
     cam.position.copy(this.pos);
+    // Между машиной и камерой постройка — камера подъезжает ближе (не прячет машину).
+    if (this.occluders.length) {
+      this.from.copy(target).setY(target.y + 1.2);
+      this.dir.subVectors(this.pos, this.from);
+      const len = this.dir.length();
+      if (len > 0.5) {
+        this.ray.set(this.from, this.dir.multiplyScalar(1 / len));
+        this.ray.far = len;
+        const hit = this.ray.intersectObjects(this.occluders, true)[0];
+        if (hit) cam.position.copy(this.from).addScaledVector(this.dir, Math.max(1.5, hit.distance - 0.6));
+      }
+    }
     cam.lookAt(this.look);
   }
 }
