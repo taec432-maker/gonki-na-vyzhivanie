@@ -9,6 +9,7 @@ import { DEFAULT_MAPPING, resolveGift, type GiftMapping, type Resolved } from '.
 import type { TrackDef } from '../tracks/types';
 import type { VehicleSpec } from '../vehicles/types';
 import { labelName, originalName } from './names';
+import { Leaderboard } from './scores';
 
 /**
  * Сессия эфира (раздел 6 ТЗ): зрители, очередь, боты-заполнители и жизненный цикл
@@ -45,6 +46,8 @@ export interface SessionSettings {
   keyword: string;
   /** Зритель выбывает из ротации, если молчит столько минут и уже прокатился. */
   inactiveMinutes: number;
+  /** «Гонка» (возрождение) или «Выживание» (выбывание). */
+  mode: 'race' | 'survival';
 }
 
 export const DEFAULT_SETTINGS: SessionSettings = {
@@ -57,6 +60,7 @@ export const DEFAULT_SETTINGS: SessionSettings = {
   joinMode: 'any',
   keyword: 'го',
   inactiveMinutes: 15,
+  mode: 'race',
 };
 
 export function clampSettings(s: Partial<SessionSettings>, base: SessionSettings = DEFAULT_SETTINGS): SessionSettings {
@@ -75,6 +79,7 @@ export function clampSettings(s: Partial<SessionSettings>, base: SessionSettings
     joinMode: s.joinMode === 'keyword' || s.joinMode === 'any' ? s.joinMode : base.joinMode,
     keyword: typeof s.keyword === 'string' && s.keyword.trim() ? s.keyword.trim().slice(0, 24) : base.keyword,
     inactiveMinutes: n(s.inactiveMinutes, 1, 240, base.inactiveMinutes),
+    mode: s.mode === 'survival' || s.mode === 'race' ? s.mode : base.mode,
   };
 }
 
@@ -94,6 +99,8 @@ export interface SessionEvents {
   /** Нитро-бар лайков: полный — всем нитро. */
   likes: { bar: number; target: number; bursts: number; burst: boolean };
   results: { results: RaceResult[]; raceIndex: number };
+  /** Уничтожение соперника (очки за килл). */
+  kill: { killer: SimCar; victim: SimCar };
   event: { ev: GameEvent };
 }
 
@@ -159,6 +166,8 @@ export class Session {
   /** Пауза (кнопка «Стоп» в панели). */
   paused = false;
   lastResults: RaceResult[] = [];
+  /** Лидерборд сессии (очки за места и уничтожения). */
+  readonly leaderboard = new Leaderboard();
   /** Маппинг подарков (хранит игра, сюда — копия). */
   mapping: GiftMapping = DEFAULT_MAPPING;
   /** Нитро-бар лайков. */
@@ -278,6 +287,14 @@ export class Session {
       track,
       laps: this.settings.laps,
       timeLimit: this.settings.timeLimit,
+      mode: this.settings.mode,
+      vehicles: this.opts.vehiclesFor(track),
+    });
+    this.sim.events.on('explode', ({ car, killer }) => {
+      if (killer?.playerId && killer !== car) {
+        this.leaderboard.addKill(killer.playerId, this.players.get(killer.playerId)?.rawName ?? killer.name);
+        this.events.emit('kill', { killer, victim: car });
+      }
     });
     this.events.emit('race-created', { sim: this.sim });
     while (this.roster.length < this.settings.maxCars && this.queue.length > 0) {
@@ -472,6 +489,7 @@ export class Session {
       case 'race':
         if (this.sim.phase === 'finished') {
           this.lastResults = this.sim.results();
+          this.leaderboard.addRace(this.lastResults, (id) => this.players.get(id)?.rawName ?? id);
           this.events.emit('results', { results: this.lastResults, raceIndex: this.raceIndex });
           this.setPhase('podium');
         }

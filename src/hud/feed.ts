@@ -11,6 +11,8 @@ export interface FeedItem {
   note?: string;
   test: boolean;
   color?: string;
+  /** Значок вместо иконки подарка (системные события: взрыв, выбывание). */
+  emoji?: string;
 }
 
 /** Лента событий: карточки «Ник ▸ Подарок ▸ Эффект» на 3 с, не больше 5 одновременно. */
@@ -34,7 +36,7 @@ export class EventFeed {
     const eff = item.effect ? EFFECTS[item.effect] : null;
     const icon = item.icon
       ? `<img src="${esc(item.icon)}" alt="" referrerpolicy="no-referrer" />`
-      : `<span class="emoji">${eff?.icon ?? '🎁'}</span>`;
+      : `<span class="emoji">${item.emoji ?? eff?.icon ?? '🎁'}</span>`;
     el.innerHTML = `${item.test ? '<span class="test">ТЕСТ</span>' : ''}
       <span class="who" ${item.color ? `style="color:${item.color}"` : ''}>${esc(item.name)}</span>
       <span class="sep">▸</span>${icon}<span class="what">${esc(item.what)}</span>

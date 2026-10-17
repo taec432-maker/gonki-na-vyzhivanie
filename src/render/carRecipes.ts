@@ -152,4 +152,83 @@ export const RECIPES: Partial<Record<BodyStyle, Recipe>> = {
       spoiler(0.97, 0.06, 0.85),
     ],
   },
+  supercar: {
+    ...base,
+    n: 3.6,
+    taper: 0.18,
+    bumper: [0.32, 0.16],
+    bottom: [
+      [0, 0.18],
+      [0.5, 0.13],
+      [1, 0.22],
+    ],
+    belt: [
+      [0, 0.42],
+      [0.1, 0.62],
+      [0.38, 0.74],
+      [0.7, 0.86],
+      [0.92, 0.84],
+      [1, 0.66],
+    ],
+    width: [
+      [0, 0.82],
+      [0.12, 0.98],
+      [0.55, 1],
+      [0.85, 1],
+      [1, 0.9],
+    ],
+    cabin: { from: 0.3, to: 0.72, roof: 1.13, front: 0.45, rear: 0.4, inset: 0.78, taper: 0.34 },
+    hood: [0.05, 0.3],
+    extras: [
+      spoiler(0.96, 0.22, 0.95),
+      exhausts(4, 0.36),
+      skirts,
+      // Воздухозаборники по бокам.
+      (b, ctx) => {
+        for (const s of [-1, 1])
+          ctx.push(b, carMaterials.trim(), ctx.box(0.05, 0.22, 0.7, s * W(ctx) * 0.5, 0.6, zAt(ctx, 0.62)));
+      },
+    ],
+  },
+  mower: {
+    ...base,
+    n: 4,
+    taper: 0.15,
+    arches: false,
+    bumper: [0.3, 0.14],
+    bottom: [
+      [0, 0.22],
+      [1, 0.25],
+    ],
+    belt: [
+      [0, 0.45],
+      [0.2, 0.55],
+      [0.55, 0.62],
+      [0.75, 0.9],
+      [1, 0.95],
+    ],
+    width: [
+      [0, 0.8],
+      [0.3, 0.95],
+      [1, 0.9],
+    ],
+    cabin: null,
+    hood: [0.02, 0.45],
+    extras: [
+      // Сиденье, руль и дека косилки.
+      (b, ctx) => {
+        ctx.push(b, carMaterials.trim(), ctx.box(0.5, 0.45, 0.45, 0, 1.05, zAt(ctx, 0.78)));
+        ctx.push(b, carMaterials.trim(), ctx.box(0.55, 0.12, 0.5, 0, 0.98, zAt(ctx, 0.66)));
+        const col = new CylinderGeometry(0.03, 0.03, 0.6, 8);
+        col.rotateX(0.5);
+        col.translate(0, 0.95, zAt(ctx, 0.48));
+        ctx.push(b, carMaterials.metalDark(), col);
+        const wheel = new CylinderGeometry(0.17, 0.17, 0.04, 16);
+        wheel.rotateX(-1.0);
+        wheel.translate(0, 1.22, zAt(ctx, 0.43));
+        ctx.push(b, carMaterials.trim(), wheel);
+        ctx.push(b, carMaterials.metalDark(), ctx.box(W(ctx) * 1.05, 0.12, L(ctx) * 0.42, 0, 0.16, zAt(ctx, 0.42)));
+      },
+    ],
+  },
 };

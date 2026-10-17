@@ -41,6 +41,8 @@ app.innerHTML = `
   </section>
   <section>
     <h2>Настройки заезда</h2>
+    <div class="row"><label>Режим
+      <select id="set-mode"><option value="race">«Гонка» — возрождение через 3 с</option><option value="survival">«Выживание» — взрыв и выбывание</option></select></label></div>
     <div class="row"><label>Машин на трассе <input type="number" id="set-max" min="6" max="16" step="1" /></label></div>
     <div class="row"><label>Кругов <input type="number" id="set-laps" min="1" max="10" step="1" /></label></div>
     <div class="row"><label>Лобби, с <input type="number" id="set-lobby" min="5" max="300" step="5" /></label>
@@ -49,6 +51,12 @@ app.innerHTML = `
       <select id="set-join"><option value="any">любое сообщение</option><option value="keyword">ключевое слово</option></select></label>
       <input id="set-keyword" size="8" /></div>
     <div class="row"><button class="primary" id="set-apply">Применить</button><span class="muted">Число машин и круги — со следующего заезда.</span></div>
+  </section>
+  <section>
+    <h2>Лидерборд сессии</h2>
+    <div class="muted">Победа 10, 2-е 6, 3-е 3, участие 1, уничтожение соперника +2.</div>
+    <table id="lb"></table>
+    <div class="row"><button id="lb-export">Экспорт JSON</button><button class="danger" id="lb-reset">Сброс сессии</button></div>
   </section>
   <section>
     <h2>Камера</h2>
@@ -129,6 +137,19 @@ $('players').addEventListener('click', (e) => {
   if (b) channel.send('remove-player', { id: b.dataset.remove });
 });
 let settingsLoaded = false;
+$('lb-export').addEventListener('click', () => channel.send('leaderboard-get', null));
+$('lb-reset').addEventListener('click', () => {
+  if (confirm('Обнулить очки всех зрителей за эту сессию?')) channel.send('leaderboard-reset', null);
+});
+channel.on((msg) => {
+  if (msg.type !== 'leaderboard') return;
+  const blob = new Blob([JSON.stringify(msg.payload, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `gonki-leaderboard-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
 $('set-apply').addEventListener('click', () => {
   channel.send('settings', {
     maxCars: Number($<HTMLInputElement>('set-max').value),
@@ -136,6 +157,7 @@ $('set-apply').addEventListener('click', () => {
     lobbySeconds: Number($<HTMLInputElement>('set-lobby').value),
     podiumSeconds: Number($<HTMLInputElement>('set-podium').value),
     joinMode: $<HTMLSelectElement>('set-join').value,
+    mode: $<HTMLSelectElement>('set-mode').value,
     keyword: $<HTMLInputElement>('set-keyword').value,
   });
   settingsLoaded = false;
@@ -177,6 +199,7 @@ channel.on((msg) => {
     $<HTMLInputElement>('set-lobby').value = String(ss.lobbySeconds);
     $<HTMLInputElement>('set-podium').value = String(ss.podiumSeconds);
     $<HTMLSelectElement>('set-join').value = ss.joinMode;
+    $<HTMLSelectElement>('set-mode').value = ss.mode;
     $<HTMLInputElement>('set-keyword').value = ss.keyword;
   }
   $('players-head').textContent = `В заезде: ${s.roster.length} · в очереди: ${s.queue.length}`;
@@ -186,6 +209,15 @@ channel.on((msg) => {
     ...s.roster.map((p) => prow(p, 'в заезде')),
     ...s.queue.map((p, i) => prow(p, `очередь ${i + 1}`)),
   ].join('');
+  $('lb').innerHTML = s.leaderboard.length
+    ? '<tr><th>#</th><th>зритель</th><th>очки</th><th>победы</th><th>уничтож.</th><th>заездов</th></tr>' +
+      s.leaderboard
+        .map(
+          (r, i) =>
+            `<tr><td>${i + 1}</td><td>${escHtml(r.name)}</td><td><b>${r.points}</b></td><td>${r.wins}</td><td>${r.kills}</td><td>${r.races}</td></tr>`,
+        )
+        .join('')
+    : '<tr><td class="muted">Пока пусто — очки появятся после первого заезда.</td></tr>';
   standingsEl.innerHTML = s.standings
     .map(
       (c, i) =>

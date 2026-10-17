@@ -6,6 +6,7 @@ import {
   CylinderGeometry,
   DoubleSide,
   DynamicDrawUsage,
+  IcosahedronGeometry,
   InstancedMesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
@@ -86,6 +87,10 @@ export class EffectsRenderer {
   private readonly oil: InstancedMesh;
   private readonly rings: InstancedMesh;
   private readonly flash: PointLight;
+  private readonly ghosts: InstancedMesh;
+  private readonly ghostMat: ShaderMaterial;
+  private readonly mines: InstancedMesh;
+  private readonly meteors: InstancedMesh;
   private flashLife = 0;
   private readonly dummy = new Object3D();
   private time = 0;
@@ -170,6 +175,85 @@ export class EffectsRenderer {
 
     this.flash = new PointLight('#ffb366', 0, 40, 2);
     scene.add(this.flash);
+
+    // «Призрак»: бледно-зелёный кокон (тот же шейдер, другой цвет).
+    this.ghostMat = this.shieldMat.clone();
+    this.ghostMat.fragmentShader = SHIELD_FRAG.replace('vec3(0.25, 0.6, 1.0)', 'vec3(0.45, 1.0, 0.7)');
+    this.ghosts = new InstancedMesh(new SphereGeometry(1, 20, 12), this.ghostMat, 24);
+    this.ghosts.count = 0;
+    this.ghosts.frustumCulled = false;
+    scene.add(this.ghosts);
+
+    const mineGeo = new CylinderGeometry(0.42, 0.5, 0.18, 16);
+    this.mines = new InstancedMesh(
+      mineGeo,
+      new MeshStandardMaterial({
+        color: '#2a2c2f',
+        metalness: 0.8,
+        roughness: 0.35,
+        emissive: '#ff2200',
+        emissiveIntensity: 0.6,
+      }),
+      96,
+    );
+    this.mines.count = 0;
+    this.mines.frustumCulled = false;
+    this.mines.castShadow = true;
+    scene.add(this.mines);
+
+    this.meteors = new InstancedMesh(
+      new IcosahedronGeometry(1, 1),
+      new MeshStandardMaterial({ color: '#3a2a20', roughness: 0.9, emissive: '#ff5a10', emissiveIntensity: 1.4 }),
+      32,
+    );
+    this.meteors.count = 0;
+    this.meteors.frustumCulled = false;
+    scene.add(this.meteors);
+  }
+
+  /** Искры и дым при таране. */
+  sparks(pos: Vector3, amount: number): void {
+    const n = this.fire.n(Math.min(40, 6 + amount * 1.5));
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 4 + Math.random() * 9;
+      this.fire.emit({
+        x: pos.x,
+        y: pos.y + 0.4,
+        z: pos.z,
+        vx: Math.cos(a) * sp,
+        vy: 2 + Math.random() * 5,
+        vz: Math.sin(a) * sp,
+        life: 0.35 + Math.random() * 0.4,
+        size0: 0.18,
+        size1: 0.04,
+        r0: 1,
+        g0: 0.8,
+        b0: 0.45,
+        a1: 0.1,
+        drag: 1,
+        gravity: -15,
+      });
+    }
+    for (let i = 0, m = this.smoke.n(4 + amount * 0.3); i < m; i++)
+      this.smoke.emit({
+        x: pos.x,
+        y: pos.y + 0.3,
+        z: pos.z,
+        vx: (Math.random() - 0.5) * 2,
+        vy: 1,
+        vz: (Math.random() - 0.5) * 2,
+        life: 0.9,
+        size0: 0.8,
+        size1: 2.4,
+        r0: 0.5,
+        g0: 0.5,
+        b0: 0.52,
+        a0: 0.45,
+        a1: 0,
+        drag: 1.5,
+      });
+    this.shake = Math.min(1, this.shake + amount * 0.012);
   }
 
   /** Подписаться на события боя новой симуляции. */
@@ -187,6 +271,13 @@ export class EffectsRenderer {
       ev.on('applied', (e) => {
         if (e.meta.via === 'gift') this.highlightCar(e.car, '#ffd84a');
       }),
+      ev.on('emp', (e) => this.highlightCar(e.car, '#6fb6ff', 1.5)),
+      ev.on('armageddon', () => {
+        this.shake = 1;
+      }),
+      sim.events.on('crash', (e) => this.sparks(e.pos, e.amount)),
+      sim.events.on('explode', (e) => this.explosion(e.car.cur.p, 1.5)),
+      sim.events.on('revive', (e) => this.highlightCar(e.car, '#7dffb0', 1.5)),
     );
   }
 
@@ -335,6 +426,118 @@ export class EffectsRenderer {
             });
         }
       }
+      // Повреждения: дым из-под капота, огонь у почти разбитых и у взорванных.
+      const frac = car.hp / car.maxHp;
+      if (frac < 0.5 || car.wrecked) {
+        const hood = tmpV2
+          .set(0, 0.6 * k, -car.spec.dims.length * 0.28 * k)
+          .applyQuaternion(tmpQ)
+          .add(v.pos);
+        const heavy = car.wrecked ? 1 : 1 - frac * 2;
+        for (let i = 0, n = this.smoke.n(0.35 + heavy * 1.2); i < n; i++)
+          this.smoke.emit({
+            x: hood.x + (Math.random() - 0.5) * 0.4,
+            y: hood.y,
+            z: hood.z + (Math.random() - 0.5) * 0.4,
+            vx: (Math.random() - 0.5) * 0.6,
+            vy: 1.4 + Math.random(),
+            vz: (Math.random() - 0.5) * 0.6,
+            life: 1.6,
+            size0: 0.6,
+            size1: 2.6 + heavy * 2,
+            r0: 0.32 - heavy * 0.22,
+            g0: 0.31 - heavy * 0.22,
+            b0: 0.3 - heavy * 0.21,
+            a0: 0.5 + heavy * 0.3,
+            a1: 0,
+            drag: 0.6,
+            gravity: 0.8,
+          });
+        if (frac < 0.25 || car.wrecked)
+          for (let i = 0, n = this.fire.n(car.wrecked ? 3 : 1.2); i < n; i++)
+            this.fire.emit({
+              x: hood.x + (Math.random() - 0.5) * 0.6,
+              y: hood.y,
+              z: hood.z + (Math.random() - 0.5) * 0.6,
+              vx: 0,
+              vy: 2 + Math.random() * 2,
+              vz: 0,
+              life: 0.35 + Math.random() * 0.3,
+              size0: 0.9,
+              size1: 0.2,
+              r0: 1,
+              g0: 0.55,
+              b0: 0.15,
+              r1: 0.9,
+              g1: 0.2,
+              b1: 0.03,
+              a1: 0,
+            });
+      }
+      // ЭМИ: голубые искры по кузову.
+      if (combat.has(car, 'emped'))
+        for (let i = 0, n = this.fire.n(2); i < n; i++)
+          this.fire.emit({
+            x: v.pos.x + (Math.random() - 0.5) * car.spec.dims.width * k,
+            y: v.pos.y + Math.random() * 1.2 * k,
+            z: v.pos.z + (Math.random() - 0.5) * car.spec.dims.length * k,
+            vx: (Math.random() - 0.5) * 4,
+            vy: Math.random() * 3,
+            vz: (Math.random() - 0.5) * 4,
+            life: 0.18,
+            size0: 0.35,
+            size1: 0.05,
+            r0: 0.5,
+            g0: 0.8,
+            b0: 1,
+            a1: 0,
+          });
+      // Проколотые шины («Гвозди»): искры от колёс.
+      if (combat.has(car, 'punctured') && Math.random() < 0.5) {
+        const wheelPos = tmpV2
+          .set((Math.random() < 0.5 ? -1 : 1) * car.spec.track * 0.5 * k, -0.55 * k, car.spec.wheelbase * 0.5 * k)
+          .applyQuaternion(tmpQ)
+          .add(v.pos);
+        this.fire.emit({
+          x: wheelPos.x,
+          y: wheelPos.y,
+          z: wheelPos.z,
+          vx: (Math.random() - 0.5) * 3,
+          vy: 2,
+          vz: (Math.random() - 0.5) * 3,
+          life: 0.3,
+          size0: 0.15,
+          size1: 0.03,
+          r0: 1,
+          g0: 0.75,
+          b0: 0.4,
+          a1: 0,
+          gravity: -12,
+        });
+      }
+      // Магнит: поток частиц от соперников к владельцу.
+      if (combat.has(car, 'magnet'))
+        for (const o of views.values()) {
+          if (o === v || o.car.race.out || Math.random() > 0.35) continue;
+          const dist = o.pos.distanceTo(v.pos);
+          if (dist > 45) continue;
+          const dir = tmpV2.copy(v.pos).sub(o.pos).normalize();
+          this.fire.emit({
+            x: o.pos.x,
+            y: o.pos.y + 0.8,
+            z: o.pos.z,
+            vx: dir.x * dist * 1.5,
+            vy: dir.y * dist * 1.5,
+            vz: dir.z * dist * 1.5,
+            life: 0.6,
+            size0: 0.4,
+            size1: 0.2,
+            r0: 0.75,
+            g0: 0.45,
+            b0: 1,
+            a1: 0,
+          });
+        }
       // Щит (и неуязвимость монстра): кокон.
       if (combat.has(car, 'shield') && shieldCount < 24) {
         d.position.copy(v.pos);
@@ -361,6 +564,25 @@ export class EffectsRenderer {
         }
       }
     }
+    // «Призрак».
+    let gc = 0;
+    if (combat)
+      for (const v of views.values()) {
+        if (gc >= 24 || v.car.race.out || !combat.has(v.car, 'ghost')) continue;
+        const k = v.car.phys.scale;
+        d.position.copy(v.pos);
+        d.quaternion.copy(v.quat);
+        d.scale.set(
+          v.car.spec.dims.width * 0.85 * k,
+          v.car.spec.dims.height * 1.05 * k,
+          v.car.spec.dims.length * 0.64 * k,
+        );
+        d.updateMatrix();
+        this.ghosts.setMatrixAt(gc++, d.matrix);
+      }
+    this.ghosts.count = gc;
+    this.ghosts.instanceMatrix.needsUpdate = true;
+    this.ghostMat.uniforms.time!.value = this.time;
     this.shields.count = shieldCount;
     this.shields.instanceMatrix.needsUpdate = true;
     this.rings.count = ringCount;
@@ -370,11 +592,57 @@ export class EffectsRenderer {
     // Ракеты и шлейф.
     let rc = 0;
     if (combat) {
+      let mc = 0;
       for (const p of combat.projectiles) {
+        if (p.kind === 'meteor') {
+          if (mc >= 32) continue;
+          d.position.copy(p.pos);
+          d.quaternion.setFromAxisAngle(up, this.time * 3 + p.id);
+          d.scale.setScalar(1.6);
+          d.updateMatrix();
+          this.meteors.setMatrixAt(mc++, d.matrix);
+          for (let i = 0, n = this.fire.n(5); i < n; i++)
+            this.fire.emit({
+              x: p.pos.x + (Math.random() - 0.5),
+              y: p.pos.y + 1 + Math.random(),
+              z: p.pos.z + (Math.random() - 0.5),
+              vx: 0,
+              vy: 8,
+              vz: 0,
+              life: 0.35,
+              size0: 2.4,
+              size1: 0.6,
+              r0: 1,
+              g0: 0.6,
+              b0: 0.2,
+              r1: 0.8,
+              g1: 0.15,
+              b1: 0.03,
+              a1: 0,
+            });
+          this.smoke.emit({
+            x: p.pos.x,
+            y: p.pos.y + 2,
+            z: p.pos.z,
+            vx: 0,
+            vy: 3,
+            vz: 0,
+            life: 1.5,
+            size0: 2,
+            size1: 5,
+            r0: 0.2,
+            g0: 0.18,
+            b0: 0.17,
+            a0: 0.6,
+            a1: 0,
+            drag: 1,
+          });
+          continue;
+        }
         if (rc >= 64) break;
         d.position.copy(p.pos);
         d.quaternion.setFromUnitVectors(tmpV.set(0, 0, -1), tmpV2.copy(p.vel).normalize());
-        d.scale.setScalar(p.kind === 'meteor' ? 4 : 1.4);
+        d.scale.setScalar(1.4);
         d.updateMatrix();
         this.rockets.setMatrixAt(rc++, d.matrix);
         const back = tmpV2.copy(p.vel).normalize().multiplyScalar(-1);
@@ -414,6 +682,8 @@ export class EffectsRenderer {
       }
     }
     this.rockets.count = rc;
+    this.meteors.count = combat ? Math.min(32, combat.projectiles.filter((p) => p.kind === 'meteor').length) : 0;
+    this.meteors.instanceMatrix.needsUpdate = true;
     this.rockets.instanceMatrix.needsUpdate = true;
 
     // Масло.
@@ -431,6 +701,19 @@ export class EffectsRenderer {
       }
     }
     this.oil.count = oc;
+    let mn = 0;
+    if (combat)
+      for (const t of combat.traps) {
+        if (t.kind !== 'mine' || mn >= 96) continue;
+        d.position.copy(t.pos).setY(t.pos.y + 0.1);
+        d.quaternion.identity();
+        const blink = 1 + 0.12 * Math.sin(this.time * 9 + t.id);
+        d.scale.set(blink, 1, blink);
+        d.updateMatrix();
+        this.mines.setMatrixAt(mn++, d.matrix);
+      }
+    this.mines.count = mn;
+    this.mines.instanceMatrix.needsUpdate = true;
     this.oil.instanceMatrix.needsUpdate = true;
 
     if (this.flashLife > 0) {

@@ -28,7 +28,7 @@ import { FrameStatsMeter } from './hud/stats';
 import { trackById } from './tracks';
 import type { TrackDef } from './tracks/types';
 import { VEHICLES } from './vehicles';
-import type { Group } from 'three';
+import type { Group, Mesh } from 'three';
 
 export interface GameStatus {
   state: 'loading' | 'running' | 'stopped';
@@ -59,6 +59,8 @@ export interface GameStatus {
   bridge: BridgeStatus | null;
   likes: { bar: number; target: number; bursts: number };
   feed: { name: string; what: string; effect: string | null; test: boolean }[];
+  leaderboard: { name: string; points: number; wins: number; kills: number; races: number }[];
+  eliminated: string[];
 }
 
 export interface SoakReport {
@@ -93,6 +95,8 @@ export class Game {
   private bridgeInd!: BridgeIndicator;
   bridge: BridgeClient | null = null;
   readonly sfx = new Sfx();
+  /** Обломки кузова на сцене: id обломка → меш. */
+  private readonly debrisMeshes = new Map<number, Mesh>();
   private trackVisual: { id: string; visual: TrackVisual; props: Group } | null = null;
   private loadingTrack: Promise<void> | null = null;
   private last = 0;
@@ -158,6 +162,8 @@ export class Game {
       vehiclesFor: () => VEHICLES,
     });
     this.session.mapping = this.settings.gifts;
+    this.loadLeaderboard();
+    this.nameTags.showHp = true;
     this.bindSession();
     this.fx.bind(this.sim);
     this.startBridge();
@@ -175,6 +181,31 @@ export class Game {
     ev.on('race-created', ({ sim }) => {
       this.director.reset();
       this.fx?.bind(sim);
+      for (const m of this.debrisMeshes.values()) this.renderer.scene.remove(m);
+      this.debrisMeshes.clear();
+      sim.events.on('part', ({ car, debris }) => {
+        const mesh = this.views.get(car.id)?.detachPart(debris.part);
+        if (!mesh) return;
+        this.renderer.scene.add(mesh);
+        this.debrisMeshes.set(debris.id, mesh);
+      });
+      sim.events.on('explode', ({ car, killer }) => {
+        this.sfx.boom();
+        this.director.hotspot(car.id, car.cur.p, 3);
+        if (!killer)
+          this.feed.push({
+            name: car.name,
+            what: 'взорвался',
+            icon: null,
+            emoji: '🔥',
+            effect: null,
+            test: false,
+            color: readableColor(car.color),
+          });
+      });
+      sim.events.on('out', ({ car }) =>
+        this.feed.push({ name: car.name, what: 'выбыл из гонки', icon: null, emoji: '💀', effect: null, test: false }),
+      );
       sim.events.on('finish', (e) => this.director.hotspot(e.car.id, e.car.cur.p, 2.5));
       if (this.trackVisual?.id !== sim.track.def.id) this.loadingTrack = this.ensureTrack(sim.track.def);
     });
@@ -199,6 +230,20 @@ export class Game {
       });
       this.sfx.gift();
     });
+    ev.on('kill', ({ killer, victim }) => {
+      this.feed.push({
+        name: killer.name,
+        what: `уничтожил ${victim.name}`,
+        icon: null,
+        emoji: '💥',
+        effect: null,
+        note: '+2 очка',
+        test: false,
+        color: readableColor(killer.color),
+      });
+      this.saveLeaderboard();
+    });
+    ev.on('results', () => this.saveLeaderboard());
     ev.on('likes', (e) => {
       if (e.burst) {
         this.likeBar.burst();
@@ -251,6 +296,43 @@ export class Game {
   ingest(raw: BridgeEnvelope): void {
     const ev = this.normalizer.normalize(raw);
     if (ev) this.session.handle(ev);
+  }
+
+  private loadLeaderboard(): void {
+    if (this.params.fresh) return;
+    try {
+      const raw = localStorage.getItem('gonki:leaderboard');
+      if (raw) this.session.leaderboard.load(JSON.parse(raw));
+    } catch {
+      // Испорченная запись — начинаем с чистого листа.
+    }
+  }
+
+  private saveLeaderboard(): void {
+    if (this.params.fresh) return;
+    try {
+      localStorage.setItem('gonki:leaderboard', JSON.stringify(this.session.leaderboard.toJSON()));
+    } catch {
+      // Нет места — лидерборд живёт до перезагрузки.
+    }
+  }
+
+  /** Обломки следуют за телами в симуляции и исчезают вместе с ними. */
+  private updateDebris(alpha: number): void {
+    const alive = new Set<number>();
+    for (const d of this.sim.debris) {
+      const m = this.debrisMeshes.get(d.id);
+      if (!m) continue;
+      alive.add(d.id);
+      m.position.lerpVectors(d.prev.p, d.cur.p, alpha);
+      m.quaternion.slerpQuaternions(d.prev.q, d.cur.q, alpha);
+    }
+    for (const [id, m] of this.debrisMeshes)
+      if (!alive.has(id)) {
+        this.renderer.scene.remove(m);
+        m.geometry.dispose();
+        this.debrisMeshes.delete(id);
+      }
   }
 
   /** Подключение к TikTok Bridge по настройкам (раздел 5 ТЗ). */
@@ -382,6 +464,13 @@ export class Game {
         this.session.mapping = this.settings.gifts;
         this.persist();
         break;
+      case 'leaderboard-reset':
+        this.session.leaderboard.reset();
+        this.saveLeaderboard();
+        break;
+      case 'leaderboard-get':
+        this.channel.send('leaderboard', this.session.leaderboard.toJSON());
+        break;
       case 'remove-player':
         if (typeof p.id === 'string') this.session.removePlayer(p.id);
         break;
@@ -434,6 +523,14 @@ export class Game {
       feed: (this.feed?.history ?? [])
         .slice(-12)
         .map((f) => ({ name: f.name, what: f.what, effect: f.effect, test: f.test })),
+      leaderboard: (ses?.leaderboard.top(10) ?? []).map((r) => ({
+        name: r.name,
+        points: r.points,
+        wins: r.wins,
+        kills: r.kills,
+        races: r.races,
+      })),
+      eliminated: (sim?.cars ?? []).filter((c) => c.race.out).map((c) => c.name),
     };
   }
 
@@ -456,7 +553,8 @@ export class Game {
       this.syncViews();
       const alpha = this.stepper.alpha;
       this.wheels.begin();
-      for (const v of this.views.values()) v.update(alpha, this.wheels);
+      for (const v of this.views.values()) v.update(alpha, this.wheels, this.sim.combat);
+      this.updateDebris(alpha);
       this.wheels.end();
       this.director.lobbyOffset = this.session.phase === 'lobby';
       this.director.winnerId = this.session.phase === 'podium' ? (this.sim.standings()[0]?.id ?? null) : null;
