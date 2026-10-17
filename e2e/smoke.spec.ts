@@ -91,7 +91,7 @@ test('smoke: игра загружается, машина едет, кадр б
 });
 
 test('панель: стоп и старт управляют игрой', async ({ page }) => {
-  await page.goto('/?seed=7&bridge=off&fresh');
+  await page.goto('/?seed=7&bridge=off&fresh&quality=broadcast');
   await waitReady(page);
   const control = await page.context().newPage();
   await control.goto('/control');

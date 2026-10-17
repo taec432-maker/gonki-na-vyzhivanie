@@ -9,7 +9,7 @@ page.on('console', (m) => {
   if (m.type() === 'error' || m.type() === 'warning') console.info('[console]', m.type(), m.text());
 });
 page.on('pageerror', (e) => console.info('[pageerror]', e.message));
-await page.goto(`http://127.0.0.1:8091/?seed=42&bridge=off&fresh&quality=broadcast${query}`);
+await page.goto(`http://127.0.0.1:8091/?seed=42&bridge=off&fresh&${query}`);
 await page.waitForFunction(() => window.__game?.ready, null, { timeout: 60000 });
 await page.evaluate(async (s) => {
   await window.__game.advanceUntil('race', 30);
@@ -18,5 +18,5 @@ await page.evaluate(async (s) => {
 const start = await page.evaluate(() => window.__game.frameCount);
 await page.waitForFunction((n) => window.__game.frameCount > n + 3, start, { timeout: 120000 });
 console.info(JSON.stringify({ ...(await page.evaluate(() => window.__game.status())), standings: undefined }));
-await page.screenshot({ path: out });
+await page.screenshot({ path: out, timeout: 180000 });
 await browser.close();

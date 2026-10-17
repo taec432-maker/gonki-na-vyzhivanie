@@ -5,7 +5,7 @@ import { collectErrors, shot, waitFrames, waitReady } from './helpers';
 test('выживание: режим из панели, взрывы и выбывание, HP под никами, очки сессии', async ({ page }) => {
   test.setTimeout(12 * 60_000);
   const errors = collectErrors(page);
-  await page.goto('/?seed=11&bridge=off&fresh&quick');
+  await page.goto('/?seed=11&bridge=off&fresh&quick&quality=broadcast');
   await waitReady(page);
   const control = await page.context().newPage();
   await control.goto('/control');

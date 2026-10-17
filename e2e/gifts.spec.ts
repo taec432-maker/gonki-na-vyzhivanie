@@ -20,7 +20,7 @@ const g = (p: Page) => p.evaluate(() => (window as unknown as { __game: G }).__g
 test('подарки: тест-подарок из панели даёт эффект машине дарителя, лента, лайки → общий нитро', async ({ page }) => {
   test.setTimeout(12 * 60_000);
   const errors = collectErrors(page);
-  await page.goto('/?seed=42&bridge=off&fresh&quick');
+  await page.goto('/?seed=42&bridge=off&fresh&quick&quality=broadcast');
   await waitReady(page);
   await page.evaluate(() => ((window as unknown as { __game: G }).__game.feed.seconds = 600));
   const control = await page.context().newPage();

@@ -22,7 +22,7 @@ test('зрители: +20 игроков из панели — 12 едут, 8 в
 }) => {
   test.setTimeout(15 * 60_000);
   const errors = collectErrors(page);
-  await page.goto('/?seed=42&bridge=off&fresh&laps=1');
+  await page.goto('/?seed=42&bridge=off&fresh&laps=1&quality=broadcast');
   await waitReady(page);
   const control = await page.context().newPage();
   await control.goto('/control');
