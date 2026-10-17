@@ -1,5 +1,6 @@
 import { DEFAULT_SETTINGS, clampSettings, type SessionSettings } from '../race/session';
 import { isQualityLevel, type QualityLevel } from '../render/quality';
+import { DEFAULT_MAPPING, sanitizeMapping, type GiftMapping } from '../gifts/mapping';
 
 /**
  * Настройки игры — живут на странице игры (в OBS свой localStorage),
@@ -17,6 +18,8 @@ export interface GameSettings {
   quality: QualityLevel;
   resolution: number;
   bridge: BridgeSettings;
+  /** Маппинг подарок → эффект (раздел 7 ТЗ). */
+  gifts: GiftMapping;
 }
 
 export const DEFAULT_GAME_SETTINGS: GameSettings = {
@@ -24,6 +27,7 @@ export const DEFAULT_GAME_SETTINGS: GameSettings = {
   quality: 'high',
   resolution: 1,
   bridge: { host: '127.0.0.1', port: 3100, enabled: 'auto' },
+  gifts: DEFAULT_MAPPING,
 };
 
 const KEY = 'gonki:settings';
@@ -49,6 +53,7 @@ export function sanitizeSettings(raw: unknown): GameSettings {
       port: Number.isInteger(port) && port > 0 && port < 65536 ? port : 3100,
       enabled: b.enabled === 'on' || b.enabled === 'off' ? b.enabled : 'auto',
     },
+    gifts: r.gifts ? sanitizeMapping(r.gifts) : sanitizeMapping(DEFAULT_MAPPING),
   };
 }
 

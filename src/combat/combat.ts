@@ -291,7 +291,7 @@ export class Combat {
       if (p.kind === 'rocket') {
         const target = p.targetId !== null ? this.sim.carById(p.targetId) : undefined;
         if (target && !target.race.out) {
-          // Самонаведение: поворот вектора скорости к цели, не больше 3,5 рад/с.
+          // Самонаведение: поворот вектора скорости к цели (вблизи — резче).
           const want = target.cur.p
             .clone()
             .add(new Vector3(0, 0.6, 0))
@@ -300,7 +300,8 @@ export class Combat {
           const speed = p.vel.length();
           const cur = p.vel.clone().normalize();
           const ang = cur.angleTo(want);
-          const maxTurn = 3.5 * STEP;
+          const dist = target.cur.p.distanceTo(p.pos);
+          const maxTurn = (dist < 25 ? 9 : 4) * STEP;
           const k = ang > 1e-4 ? Math.min(1, maxTurn / ang) : 1;
           cur.lerp(want, k).normalize();
           p.vel.copy(cur.multiplyScalar(Math.min(95, speed + 30 * STEP)));
@@ -313,8 +314,9 @@ export class Combat {
       for (const c of this.sim.cars) {
         if (c.id === p.ownerId && p.kind === 'rocket') continue;
         if (c.race.out) continue;
-        const r = (p.kind === 'meteor' ? 4.5 : 2.4) * c.phys.scale;
-        if (c.cur.p.distanceToSquared(p.pos) < r * r) {
+        const r = (p.kind === 'meteor' ? 4.5 : 2.8) * c.phys.scale;
+        // Проверяем весь отрезок полёта за шаг — быстрая ракета не «проскакивает» машину.
+        if (segmentDist2(p.prev, p.pos, c.cur.p) < r * r) {
           hit = c;
           break;
         }
@@ -405,4 +407,17 @@ export class Combat {
     this.traps.length = 0;
     this.queue.length = 0;
   }
+}
+
+const segTmp = new Vector3();
+/** Квадрат расстояния от точки c до отрезка a–b. */
+function segmentDist2(a: Vector3, b: Vector3, c: Vector3): number {
+  const abx = b.x - a.x;
+  const aby = b.y - a.y;
+  const abz = b.z - a.z;
+  const len2 = abx * abx + aby * aby + abz * abz;
+  let t = len2 > 0 ? ((c.x - a.x) * abx + (c.y - a.y) * aby + (c.z - a.z) * abz) / len2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  segTmp.set(a.x + abx * t, a.y + aby * t, a.z + abz * t);
+  return segTmp.distanceToSquared(c);
 }
