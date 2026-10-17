@@ -1,10 +1,16 @@
 import { FixedStepper, STEP, STEP_HZ } from './core/loop';
 import { LinkChannel, relayUrlFor } from './core/channel';
 import type { UrlParams } from './core/params';
-import { loadSettings, saveSettings, type GameSettings } from './core/settings';
+import { loadSettings, sanitizeSettings, saveSettings, type GameSettings } from './core/settings';
 import type { Simulation } from './core/sim';
 import { EventNormalizer } from './bridge/normalize';
 import { MockViewers } from './bridge/mock';
+import { BridgeClient, type BridgeStatus } from './bridge/client';
+import { Sfx } from './audio/sfx';
+import { sanitizeMapping } from './gifts/mapping';
+import { EffectsRenderer } from './render/fx';
+import { BridgeIndicator, EventFeed, LikeBar } from './hud/feed';
+import { readableColor } from './hud/nameTags';
 import type { BridgeEnvelope } from './bridge/protocol';
 import { Session, type SessionSettings } from './race/session';
 import { CarView } from './render/carView';
@@ -50,6 +56,9 @@ export interface GameStatus {
   roster: { id: string; name: string }[];
   queue: { id: string; name: string }[];
   settings: GameSettings;
+  bridge: BridgeStatus | null;
+  likes: { bar: number; target: number; bursts: number };
+  feed: { name: string; what: string; effect: string | null; test: boolean }[];
 }
 
 export interface SoakReport {
@@ -78,6 +87,12 @@ export class Game {
   private hud!: RaceHud;
   private lobby!: LobbyScreen;
   nameTags!: NameTags;
+  fx!: EffectsRenderer;
+  feed!: EventFeed;
+  private likeBar!: LikeBar;
+  private bridgeInd!: BridgeIndicator;
+  bridge: BridgeClient | null = null;
+  readonly sfx = new Sfx();
   private trackVisual: { id: string; visual: TrackVisual; props: Group } | null = null;
   private loadingTrack: Promise<void> | null = null;
   private last = 0;
@@ -130,14 +145,22 @@ export class Game {
     this.nameTags = new NameTags(hudRoot);
     this.hud = new RaceHud(hudRoot);
     this.lobby = new LobbyScreen(hudRoot);
+    this.feed = new EventFeed(hudRoot);
+    this.likeBar = new LikeBar(hudRoot);
+    this.bridgeInd = new BridgeIndicator(hudRoot);
     this.wheels = new WheelRenderer(this.renderer.scene);
+    this.fx = new EffectsRenderer(this.renderer.scene);
+    this.fx.setDensity(this.renderer.quality.particles);
     this.session = await Session.create({
       seed: this.params.seed,
       settings: this.settings.session,
       trackFor: this.trackFor,
       vehiclesFor: () => VEHICLES,
     });
+    this.session.mapping = this.settings.gifts;
     this.bindSession();
+    this.fx.bind(this.sim);
+    this.startBridge();
     onProgress(0.3, 'Трасса и освещение');
     await this.ensureTrack(this.sim.track.def);
     this.syncViews();
@@ -151,8 +174,44 @@ export class Game {
     const ev = this.session.events;
     ev.on('race-created', ({ sim }) => {
       this.director.reset();
+      this.fx?.bind(sim);
       sim.events.on('finish', (e) => this.director.hotspot(e.car.id, e.car.cur.p, 2.5));
       if (this.trackVisual?.id !== sim.track.def.id) this.loadingTrack = this.ensureTrack(sim.track.def);
+    });
+    ev.on('gift', ({ ev: g, resolved, outcome, carId }) => {
+      const car = carId !== null ? this.sim.carById(carId) : undefined;
+      const note =
+        outcome === 'pending'
+          ? 'сработает на старте'
+          : outcome === 'queue'
+            ? 'в очереди на заезд'
+            : outcome === 'none'
+              ? ''
+              : undefined;
+      this.feed.push({
+        name: g.name,
+        what: g.count > 1 ? `${g.giftName} ×${g.count}` : g.giftName,
+        icon: g.picture,
+        effect: resolved?.effect ?? null,
+        ...(note ? { note } : {}),
+        test: g.test,
+        ...(car ? { color: readableColor(car.color) } : {}),
+      });
+      this.sfx.gift();
+    });
+    ev.on('likes', (e) => {
+      if (e.burst) {
+        this.likeBar.burst();
+        this.sfx.nitro();
+        this.feed.push({
+          name: 'Зрители',
+          what: 'лайки',
+          icon: null,
+          effect: 'nitro',
+          note: 'всем машинам',
+          test: false,
+        });
+      }
     });
     ev.on('car-added', ({ car }) => {
       if (!this.views.has(car.id)) this.views.set(car.id, new CarView(this.renderer.scene, car));
@@ -192,6 +251,50 @@ export class Game {
   ingest(raw: BridgeEnvelope): void {
     const ev = this.normalizer.normalize(raw);
     if (ev) this.session.handle(ev);
+  }
+
+  /** Подключение к TikTok Bridge по настройкам (раздел 5 ТЗ). */
+  startBridge(): void {
+    this.bridge?.stop();
+    this.bridge = null;
+    const b = this.settings.bridge;
+    const local = location.hostname === '127.0.0.1' || location.hostname === 'localhost';
+    const want =
+      this.params.bridge === 'off'
+        ? false
+        : this.params.bridge === 'on' || b.enabled === 'on' || (b.enabled === 'auto' && local);
+    if (!want) {
+      this.bridgeInd?.set('off', null);
+      return;
+    }
+    this.bridge = new BridgeClient({
+      host: b.host,
+      port: b.port,
+      fallbackPort: b.port === 3100 ? 3101 : undefined,
+      onEvent: (m) => this.ingest(m),
+      onStatus: (s) => this.bridgeInd?.set(s.state, s.live),
+    });
+    this.bridge.start();
+  }
+
+  /** Мок: подарок от зрителя (серия комбо как в TikTok). */
+  mockGift(userId: string | null, diamonds: number, count: number, giftName = 'Тестовый подарок'): void {
+    const roster = this.session.roster;
+    let id = userId;
+    let name = '';
+    if (!id) {
+      const p = roster.length ? roster[Math.floor(Math.random() * roster.length)] : null;
+      if (!p) {
+        const v = this.mock.viewer();
+        this.ingest(this.mock.chat(v.userId, v.name));
+        id = v.userId;
+        name = v.name;
+      } else {
+        id = p.id;
+        name = p.rawName;
+      }
+    } else name = this.session.players.get(id)?.rawName ?? id;
+    for (const m of this.mock.gift(id, name, giftName, diamonds, count)) this.ingest(m);
   }
 
   /** Мок: n новых зрителей пишут в чат. */
@@ -258,6 +361,27 @@ export class Game {
         if (id) this.ingest(this.mock.chat(id, String(p.name ?? id), String(p.text ?? 'привет')));
         break;
       }
+      case 'mock-gift':
+        this.mockGift(
+          typeof p.userId === 'string' && p.userId ? p.userId : null,
+          Math.max(1, Number(p.diamonds ?? 1)),
+          Math.max(1, Math.min(99, Number(p.count ?? 1))),
+          typeof p.giftName === 'string' && p.giftName ? p.giftName : 'Тестовый подарок',
+        );
+        break;
+      case 'mock-likes':
+        this.ingest(this.mock.like('mock-likes', 'Зрители', Math.max(1, Number(p.count ?? 50))));
+        break;
+      case 'bridge':
+        this.settings.bridge = sanitizeSettings({ bridge: { ...this.settings.bridge, ...(p as object) } }).bridge;
+        this.persist();
+        this.startBridge();
+        break;
+      case 'gifts':
+        this.settings.gifts = sanitizeMapping(payload);
+        this.session.mapping = this.settings.gifts;
+        this.persist();
+        break;
       case 'remove-player':
         if (typeof p.id === 'string') this.session.removePlayer(p.id);
         break;
@@ -305,6 +429,11 @@ export class Game {
       roster: (ses?.roster ?? []).map((p) => ({ id: p.id, name: p.rawName })),
       queue: (ses?.queue ?? []).map((p) => ({ id: p.id, name: p.rawName })),
       settings: { ...this.settings, session: ses?.settings ?? this.settings.session },
+      bridge: this.bridge ? { ...this.bridge.status } : null,
+      likes: { bar: ses?.likeBar ?? 0, target: this.settings.gifts.likes.target, bursts: ses?.likeBursts ?? 0 },
+      feed: (this.feed?.history ?? [])
+        .slice(-12)
+        .map((f) => ({ name: f.name, what: f.what, effect: f.effect, test: f.test })),
     };
   }
 
@@ -340,6 +469,24 @@ export class Game {
       this.hud.setRaceVisible(racing);
       this.hud.update(dt, this.sim, this.director.targetId);
       this.lobby.update(dt, this.session);
+      this.likeBar.update(
+        this.session.likeBar,
+        this.settings.gifts.likes.target,
+        this.session.likeBursts,
+        racing || this.session.phase === 'lobby',
+      );
+      document.getElementById('feed')?.classList.toggle('in-lobby', this.session.phase === 'lobby');
+      this.fx.update(
+        dt,
+        this.renderer.camera,
+        this.views,
+        this.renderer.renderer.domElement.clientHeight || window.innerHeight,
+      );
+      if (this.fx.shake > 0 && this.director.shot !== 'overview') {
+        const k = this.fx.shake * this.fx.shake * 0.35;
+        this.renderer.camera.position.x += (Math.random() - 0.5) * k;
+        this.renderer.camera.position.y += (Math.random() - 0.5) * k;
+      }
       this.nameTags.sync(this.views);
       this.nameTags.update(dt, this.renderer.camera, this.views, [
         document.getElementById('standings'),
@@ -351,9 +498,9 @@ export class Game {
       this.lastStats = this.renderer.render(dt);
       this.frameCount++;
       this.hudFps.textContent = `${Math.round(this.meter.fps())} fps · ${this.meter.median().toFixed(1)} мс`;
-      this.statusTimer += dt;
-      if (this.statusTimer > 0.5) {
-        this.statusTimer = 0;
+      // Статус панели — по настоящим часам (dt кадра ограничен 0,1 с и на медленном GPU «отстаёт»).
+      if (now - this.statusTimer > 500) {
+        this.statusTimer = now;
         this.sendStatus();
       }
     } catch (e) {
