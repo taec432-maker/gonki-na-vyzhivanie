@@ -10,6 +10,7 @@ import {
   Vector2,
   type Material,
   type MeshPhysicalMaterial,
+  type Object3D,
 } from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { VehicleSpec } from '../vehicles/types';
@@ -18,6 +19,18 @@ import { loft, profile, splitByGroup, type Station } from './loft';
 import { RECIPES, type Recipe } from './carRecipes';
 
 export type PartName = 'hood' | 'bumperF' | 'bumperR';
+
+/** Колесо GLB-модели: своя группа с центром в оси (крутит CarView). */
+export interface GlbWheel {
+  group: Group;
+  /** Положение оси в системе машины (по модели, не по физике). */
+  x: number;
+  z: number;
+  /** Какие колёса физики изображает (задняя ось может быть одним узлом). */
+  phys: number[];
+  /** Поворачивает ли руль. */
+  steer: boolean;
+}
 
 export interface CarModel {
   root: Group;
@@ -33,6 +46,12 @@ export interface CarModel {
    * меш части для обломка (или null, если её уже нет).
    */
   detach(part: PartName): Mesh | null;
+  /** Все материалы краски (у GLB их может быть несколько); по умолчанию — только paint. */
+  paints?: MeshPhysicalMaterial[];
+  /** Собственные колёса модели (GLB). Нет — колёса рисует общий WheelRenderer. */
+  wheels?: GlbWheel[];
+  /** Мелкие детали (салон, тормоза), которые вдали скрываются (LOD). */
+  details?: Object3D[];
 }
 
 /** Высота центра колеса относительно центра тела в покое (см. PhysVehicle: подвеска ~0.28 м). */

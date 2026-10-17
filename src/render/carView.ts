@@ -1,8 +1,18 @@
-import { CanvasTexture, Color, Quaternion, RepeatWrapping, Vector3, type Mesh, type Scene } from 'three';
+import {
+  CanvasTexture,
+  Color,
+  Quaternion,
+  RepeatWrapping,
+  Vector3,
+  type Mesh,
+  type MeshPhysicalMaterial,
+  type Scene,
+} from 'three';
 import type { Combat } from '../combat/combat';
 import type { SimCar } from '../core/sim';
 import type { VehicleSpec } from '../vehicles/types';
-import { buildCarModel, type CarModel, type PartName } from './carModel';
+import { buildCarModel, NOMINAL_WHEEL_Y, type CarModel, type PartName } from './carModel';
+import { buildGlbCarModel } from './glbCar';
 import type { WheelRenderer } from './wheels';
 
 const TIRE_WIDTH = 0.26;
@@ -51,6 +61,11 @@ function dentNormal(): CanvasTexture {
   return dentTex;
 }
 
+/** Настоящая модель (GLB), если загружена; иначе — процедурная. */
+function makeModel(spec: VehicleSpec, color: string): CarModel {
+  return buildGlbCarModel(spec, color) ?? buildCarModel(spec, color);
+}
+
 /** Визуал одной машины: интерполированная поза, кузов, повреждения, колёса через WheelRenderer. */
 export class CarView {
   readonly car: SimCar;
@@ -60,6 +75,7 @@ export class CarView {
   private readonly scene: Scene;
   private specShown: VehicleSpec;
   private disguised = false;
+  private near = true;
   private state: DamageState = 'clean';
   private readonly baseColor: Color;
   /** Оторванные части-обломки (меш следует за телом обломка в симуляции). */
@@ -69,7 +85,7 @@ export class CarView {
     this.scene = scene;
     this.car = car;
     this.specShown = car.spec;
-    this.model = buildCarModel(car.spec, car.color);
+    this.model = makeModel(car.spec, car.color);
     this.baseColor = this.model.paint.color.clone();
     scene.add(this.model.root);
   }
@@ -77,13 +93,21 @@ export class CarView {
   private rebuild(spec: VehicleSpec): void {
     const visible = this.model.root.visible;
     this.disposeModel();
-    this.model = buildCarModel(spec, this.car.color);
+    this.model = makeModel(spec, this.car.color);
     this.model.root.visible = visible;
     this.specShown = spec;
     this.state = 'clean';
+    this.near = true;
     this.scene.add(this.model.root);
     // Уже оторванные части у новой модели тоже убираем.
     for (const p of this.car.lostParts) this.model.detach(p as PartName)?.geometry.dispose();
+  }
+
+  /** LOD: вдали мелкие детали модели скрываются (меньше draw calls). */
+  setNear(near: boolean): void {
+    if (near === this.near) return;
+    this.near = near;
+    for (const d of this.model.details ?? []) d.visible = near;
   }
 
   /** Оторвать часть кузова: возвращает меш для обломка. */
@@ -94,7 +118,10 @@ export class CarView {
   private applyDamage(state: DamageState): void {
     if (state === this.state) return;
     this.state = state;
-    const m = this.model.paint;
+    for (const m of this.model.paints ?? [this.model.paint]) this.paintDamage(m, state);
+  }
+
+  private paintDamage(m: MeshPhysicalMaterial, state: DamageState): void {
     switch (state) {
       case 'clean':
         m.color.copy(this.baseColor);
@@ -148,6 +175,19 @@ export class CarView {
     root.scale.setScalar(k);
     this.applyDamage(damageState(c.hp / c.maxHp, c.wrecked));
     const shown = this.specShown;
+    const own = this.model.wheels;
+    if (own) {
+      // У GLB свои колёса: ось — по модели, ход подвески, руль и вращение — из физики.
+      for (const gw of own) {
+        let y = 0;
+        for (const i of gw.phys) y += c.phys.wheels[i]?.y ?? NOMINAL_WHEEL_Y;
+        const w = c.phys.wheels[gw.phys[0] ?? 0];
+        if (!w) continue;
+        gw.group.position.set(gw.x, y / gw.phys.length / k, gw.z);
+        gw.group.rotation.set(-w.spin, gw.steer ? w.steer : 0, 0, 'YXZ');
+      }
+      return;
+    }
     for (let i = 0; i < 4; i++) {
       const w = c.phys.wheels[i];
       const wp = c.phys.wheelPos[i];
@@ -168,11 +208,13 @@ export class CarView {
 
   private disposeModel(): void {
     this.scene.remove(this.model.root);
-    this.model.root.traverse((o) => {
-      const m = o as { geometry?: { dispose(): void } };
-      m.geometry?.dispose();
-    });
-    this.model.paint.dispose();
+    // Геометрия GLB общая для всех копий модели — её не освобождаем.
+    if (!this.model.wheels)
+      this.model.root.traverse((o) => {
+        const m = o as { geometry?: { dispose(): void } };
+        m.geometry?.dispose();
+      });
+    for (const p of this.model.paints ?? [this.model.paint]) p.dispose();
   }
 
   dispose(scene: Scene): void {

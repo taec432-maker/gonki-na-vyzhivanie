@@ -22,7 +22,13 @@
 
 ## Модели машин
 
-Пока все машины — процедурные (`src/render/carModel.ts`, `src/render/carRecipes.ts`), свой код. В JSON машин стоит `placeholder: true`.
+| Файл | Что | Автор | Лицензия | Откуда | Изменения |
+|---|---|---|---|---|---|
+| public/assets/models/supercar.glb | «Суперкар» (машина №3, редкая) | Eric Chadwick, модель «Car Concept» на основе работы Darmstadt Graphics Group | **CC-BY 4.0** (нужно указывать автора — указано здесь) | [KhronosGroup/glTF-Sample-Assets — CarConcept](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/CarConcept) | удалены **логотипы Khronos и 3D Commerce** (номерные знаки, эмблема на руле, светящийся знак на суппортах, надписи на боковинах шин), коврики, педали, каркас и двигатель; убраны варианты материалов; стекло без «transmission» (дорого); детали слиты по материалу, упрощение сетки до ~82 тыс. треугольников, текстуры ≤ 1024 px (WebP), сжатие Meshopt — 1,3 МБ. Скрипты: `scripts/models/` |
+
+Логотипов и названий марок в модели нет: это концепт-кар, не реальная марка; логотипы из исходника (лицензия CC-BY их не покрывает) вырезаны — см. скрипт `scripts/models/2-pack.mjs`.
+
+Остальные машины — процедурные (`src/render/carModel.ts`, `src/render/carRecipes.ts`), свой код. В их JSON стоит `placeholder: true` — список на замену настоящими моделями в CHANGELOG.
 
 ## Код сторонних проектов
 
@@ -32,3 +38,6 @@
 | Raycast-vehicle | [Rapier](https://rapier.rs) `@dimforge/rapier3d-compat` | Apache-2.0 | npm-зависимость |
 | Three.js | three | MIT | npm-зависимость |
 | Пост-обработка | postprocessing (pmndrs) | Zlib | npm-зависимость |
+| Ambient Occlusion | [n8ao](https://github.com/N8python/n8ao) | ISC | npm-зависимость |
+| Загрузка glTF, Meshopt | three/examples (GLTFLoader, meshopt_decoder) | MIT | из пакета three |
+| Подготовка моделей | glTF-Transform, meshoptimizer, sharp | MIT / MIT / Apache-2.0 | только для `scripts/models/`, в игру не входят |
