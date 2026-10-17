@@ -1,0 +1,119 @@
+import type { ControlPoint } from './spline';
+
+/** Тип покрытия: влияет на сцепление и сопротивление качению. */
+export type SurfaceType = 'asphalt' | 'wet' | 'dirt' | 'sand' | 'snow' | 'ice' | 'grass' | 'metal';
+
+export interface SurfaceProps {
+  /** Множитель сцепления шин. */
+  grip: number;
+  /** Сопротивление качению (доп. торможение, м/с² на единицу скорости). */
+  drag: number;
+  /** Цвет пыли из-под колёс (для частиц). */
+  dust: string | null;
+}
+
+export const SURFACES: Record<SurfaceType, SurfaceProps> = {
+  asphalt: { grip: 1.0, drag: 0.0, dust: null },
+  wet: { grip: 0.82, drag: 0.0, dust: null },
+  metal: { grip: 0.88, drag: 0.0, dust: null },
+  dirt: { grip: 0.8, drag: 0.03, dust: '#8a7356' },
+  grass: { grip: 0.7, drag: 0.06, dust: '#5d6b3a' },
+  snow: { grip: 0.62, drag: 0.04, dust: '#e8eef5' },
+  sand: { grip: 0.6, drag: 0.16, dust: '#c9a36b' },
+  ice: { grip: 0.26, drag: 0.0, dust: null },
+};
+
+/** Участок трассы [from, to) в долях круга, 0..1. */
+export interface Span {
+  from: number;
+  to: number;
+}
+
+export interface SurfaceZone extends Span {
+  surface: SurfaceType;
+}
+
+export interface JumpDef {
+  /** Доля круга, где стоит трамплин. */
+  at: number;
+  /** Высота трамплина (м). */
+  height: number;
+  /** Длина разгонной части (м). */
+  length: number;
+}
+
+export interface TeleportDef {
+  /** Вход (доля круга) и выход (доля круга) — выход всегда дальше по ходу. */
+  from: number;
+  to: number;
+  /** Полуширина входной зоны поперёк дороги, м; центр — смещение d. */
+  d: number;
+  halfWidth: number;
+}
+
+export interface BoostDef extends Span {
+  d: number;
+  halfWidth: number;
+}
+
+export interface ShortcutDef {
+  /** Начало и конец на основной линии. */
+  from: number;
+  to: number;
+  /** С какой стороны отходит (+1 — справа, −1 — слева) и максимальное отклонение, м. */
+  side: 1 | -1;
+  offset: number;
+  width: number;
+}
+
+export interface PropDef {
+  type: string;
+  /** Где ставить: доля круга, смещение от центра (м), поворот (рад) — либо ряд вдоль трассы. */
+  at?: number;
+  d?: number;
+  rot?: number;
+  /** Ряд: каждые every метров в диапазоне span, с обеих сторон или с одной. */
+  every?: number;
+  span?: Span;
+  side?: 1 | -1 | 0;
+  /** Случайный разброс смещения (м) — детерминированно по seed трассы. */
+  jitter?: number;
+  scale?: number;
+  /** Разрушаемый (бочка, конус, щит): улетает от удара, наносит немного урона. */
+  breakable?: boolean;
+}
+
+export interface TrackDef {
+  id: string;
+  name: string;
+  /** Короткое описание локации для экрана лобби. */
+  description: string;
+  /** Контрольные точки: {x,y,z,w?,bank?} или короткая запись [x, y, z]. */
+  points: (ControlPoint | [number, number, number])[];
+  width: number;
+  surface: SurfaceType;
+  zones?: SurfaceZone[];
+  shoulder: { width: number; surface: SurfaceType };
+  walls: { offset: number; height: number; gaps?: Span[] };
+  /** Число равномерно расставленных чекпойнтов или явный список долей круга. */
+  checkpoints: number | number[];
+  startAt: number;
+  /** Пресет освещения/погоды (src/render/presets.ts). */
+  lighting: string;
+  /** Ночной вариант пресета (для ротации день/ночь). */
+  lightingNight?: string;
+  weather: 'none' | 'rain' | 'snow' | 'dust';
+  jumps?: JumpDef[];
+  teleports?: TeleportDef[];
+  boosts?: BoostDef[];
+  shortcuts?: ShortcutDef[];
+  props?: PropDef[];
+  /** Ниже этой высоты относительно дороги — вылет (обрыв): урон и возврат на трассу. */
+  fallDepth?: number;
+  /** Ростер машин локации (id), пусто — все обычные. */
+  roster?: string[];
+  /** Цвет земли за пределами дороги. */
+  groundColor?: string;
+  /** Высота земли относительно дороги (для каньонов/обрывов — сильно ниже). */
+  groundOffset?: number;
+}

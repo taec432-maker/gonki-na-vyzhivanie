@@ -1,0 +1,23 @@
+{
+  "id": "sports",
+  "number": 2,
+  "name": "Спорткар",
+  "category": "race",
+  "rarity": "common",
+  "placeholder": true,
+  "model": null,
+  "body": "sports",
+  "mass": 1350,
+  "powerKw": 280,
+  "maxSpeedKmh": 230,
+  "grip": 1.05,
+  "hp": 100,
+  "dims": { "length": 4.5, "width": 1.9, "height": 1.25 },
+  "wheelbase": 2.6,
+  "track": 1.62,
+  "wheelRadius": 0.34,
+  "drive": "rwd",
+  "steer": 1.0,
+  "nameTagHeight": 2.2,
+  "colors": ["#c8102e", "#f2f2f2", "#1b3a8a", "#f5b800", "#1f1f22", "#2e8b57"]
+}
