@@ -49,6 +49,8 @@ export class PhysVehicle {
   /** Масштаб машины (эффект «Монстр»). */
   scale = 1;
   ghost = false;
+  /** Сила стабилизации рыскания, 1/с (0 — выключена; «масло» её снижает). */
+  stability = 5;
   /** Двигатель заглушен (ЭМИ). */
   stalled = false;
   readonly maxForce: number;
@@ -84,8 +86,9 @@ export class PhysVehicle {
     const colDesc = R.ColliderDesc.cuboid(this.halfExtents.x, this.halfExtents.y, this.halfExtents.z)
       .setTranslation(0, this.halfExtents.y * 0.6, 0)
       .setDensity(0)
-      .setFriction(0.3)
-      .setRestitution(0.15)
+      // Низкое трение кузова: при касании бортами машины скользят, а не закручивают друг друга.
+      .setFriction(0.04)
+      .setRestitution(0.1)
       .setCollisionGroups(CAR_GROUPS)
       .setActiveEvents(R.ActiveEvents.COLLISION_EVENTS);
     this.collider = world.createCollider(colDesc, this.body);
@@ -214,6 +217,20 @@ export class PhysVehicle {
     this.body.applyImpulse({ x: -upV.x * down, y: -upV.y * down, z: -upV.z * down }, true);
 
     ctl.updateVehicle(dt, undefined, WHEEL_RAY_GROUPS);
+
+    // Стабилизация (аркадная «ESP»): гасим вращение кузова сверх того, что задаёт руль.
+    // Без неё касание соседа на 130 км/ч разворачивает машину поперёк трассы.
+    let grounded = 0;
+    for (let i = 0; i < 4; i++) if (ctl.wheelIsInContact(i)) grounded++;
+    if (grounded >= 2 && speed > 4) {
+      const av = this.body.angvel();
+      const angle = Math.max(-1, Math.min(1, c.steer)) * maxSteer;
+      const yawDes = (-v * Math.tan(angle)) / (this.spec.wheelbase * this.scale);
+      const excess = av.y - yawDes;
+      const k = Math.min(1, this.stability * dt);
+      // Крен и тангаж тоже чуть гасим — меньше переворотов от ударов.
+      this.body.setAngvel({ x: av.x * (1 - k * 0.3), y: av.y - excess * k, z: av.z * (1 - k * 0.3) }, true);
+    }
 
     for (let i = 0; i < 4; i++) {
       const w = this.wheels[i] as WheelState;
