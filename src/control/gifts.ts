@@ -313,7 +313,8 @@ export function mountGifts(root: HTMLElement, channel: LinkChannel): (s: GameSta
     $('gf-likebar').textContent =
       `нитро-бар: ${s.likes.bar}/${s.likes.target}${s.likes.bursts ? ` · ×${s.likes.bursts}` : ''}`;
     const who = $<HTMLSelectElement>('gf-who');
-    const key = s.roster.map((p) => p.id).join(',');
+    // Список «от кого» — участники заезда и очередь: обновлять при изменении любого из них.
+    const key = [...s.roster, ...s.queue].map((p) => `${p.id}:${p.name}`).join(',');
     if (who.dataset.key !== key) {
       const cur = who.value;
       who.dataset.key = key;

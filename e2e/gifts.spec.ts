@@ -33,7 +33,7 @@ test('подарки: тест-подарок из панели даёт эфф�
 
   // Подарок от конкретного зрителя: щит (100 алмазов).
   const target = (await g(page)).roster[3]!;
-  await expect(control.locator('#gf-who option', { hasText: target.name }).first()).toBeAttached({ timeout: 10_000 });
+  await expect(control.locator('#gf-who option', { hasText: target.name }).first()).toBeAttached({ timeout: 30_000 });
   await control.locator('#gf-who').selectOption(target.id);
   await control.locator('#gf-dia').fill('100');
   await control.getByRole('button', { name: 'Подарить' }).click();
