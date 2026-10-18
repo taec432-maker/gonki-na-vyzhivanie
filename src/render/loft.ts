@@ -35,7 +35,8 @@ export function ringPoint(st: Station, theta: number): [number, number] {
   const yc = (st.yb + st.yt) / 2;
   const hh = (st.yt - st.yb) / 2;
   const y = yc + py * hh;
-  const t = (y - st.yb) / Math.max(1e-4, st.yt - st.yb);
+  // Доля высоты сечения 0..1; у вырожденного сечения (верх ниже низа) — 0, без деления на ~0.
+  const t = st.yt - st.yb > 1e-4 ? (y - st.yb) / (st.yt - st.yb) : 0;
   const x = px * st.hw * (1 - (st.taper ?? 0) * t);
   return [x, y];
 }

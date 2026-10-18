@@ -169,7 +169,8 @@ export function buildCarModel(spec: VehicleSpec, color: string): CarModel {
       // Лобовое и заднее стекло — наклонные участки по краям кабины.
       const rise = Math.min(1, u / cab.front, (1 - u) / cab.rear);
       const sm = rise * rise * (3 - 2 * rise);
-      const roof = belt + (cab.roof - belt) * Math.max(0.04, sm);
+      // Крыша кабины не ниже линии окон (иначе сечение «выворачивается»).
+      const roof = belt + Math.max(0.02, (cab.roof - belt) * Math.max(0.04, sm));
       cs.push({ z, hw: (W / 2) * profile(recipe.width, t) * cab.inset, yb: belt, yt: roof, n: 5, taper: cab.taper });
     }
     const roofMat = cab.glassRoof ? 1 : 0;

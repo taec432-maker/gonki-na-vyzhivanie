@@ -730,7 +730,7 @@ export const RECIPES: Partial<Record<BodyStyle, Recipe>> = {
       [0.5, 1],
       [1, 1],
     ],
-    cabin: { from: 0.12, to: 0.32, roof: 2.0, front: 0.5, rear: 0.05, inset: 0.94, taper: 0.1 },
+    cabin: { from: 0.1, to: 0.26, roof: 2.0, front: 0.5, rear: 0.05, inset: 0.94, taper: 0.1 },
     hood: [0.02, 0.12],
     extras: [
       // Рожок мороженого на крыше, окно выдачи, козырёк.
