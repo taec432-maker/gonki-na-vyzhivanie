@@ -10,10 +10,22 @@ PORT=8091
 NODE_DIR="$HOME_DIR/node"
 cd "$GAME"
 
-# --- Node.js: системный, если версия 20+, иначе — свой рядом с игрой ---
-node_ok() { command -v node >/dev/null 2>&1 && [ "$(node -p 'process.versions.node.split(".")[0]')" -ge 20 ]; }
+# Приложение с рабочего стола запускается с «урезанным» PATH — добавляем обычные папки программ.
+export PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
+# Ошибка — окно с последними строками журнала (когда запущено с рабочего стола).
+on_error() {
+  if [ ! -t 1 ] && command -v osascript >/dev/null; then
+    msg="$(grep -v '^ *at ' "$HOME_DIR/launch.log" 2>/dev/null | tail -n 10 | tr '"\\' "'/" | cut -c1-160)"
+    osascript -e "display dialog \"Ошибка при запуске. Сделайте скриншот этого окна и пришлите разработчику:\n\n$msg\" with title \"Гонки на выживание\" buttons {\"OK\"} default button 1 with icon stop" >/dev/null 2>&1 || true
+  fi
+}
+trap on_error ERR
+
+# --- Node.js: всегда свой, рядом с игрой (одна и та же версия и в «Терминале», и с рабочего стола) ---
 export PATH="$NODE_DIR/bin:$PATH"
-if ! node_ok; then
+local_node_ok() { [ -x "$NODE_DIR/bin/node" ] && "$NODE_DIR/bin/node" -v >/dev/null 2>&1; }
+if ! local_node_ok; then
   echo "▶ Скачиваю Node.js (один раз)…"
   arch="$(uname -m)"
   [ "$arch" = "arm64" ] || arch="x64"
@@ -26,17 +38,22 @@ if ! node_ok; then
   mkdir -p "$NODE_DIR"
   tar -xzf "$tmp/node.tgz" -C "$NODE_DIR" --strip-components 1
   rm -rf "$tmp"
-  node_ok || { echo "✖ Node.js не запускается"; exit 1; }
+  local_node_ok || { echo "✖ Node.js не запускается"; exit 1; }
 fi
-echo "▶ Node.js $(node -v)"
+echo "▶ Node.js $(node -v) ($(uname -m)), $(command -v node)"
 
-# --- Зависимости: только если поменялся список (package-lock.json) ---
-stamp="node_modules/.lock-stamp"
-if [ ! -d node_modules ] || ! cmp -s package-lock.json "$stamp"; then
+# --- Зависимости: заново, если поменялся их список или версия Node.js ---
+stamp="node_modules/.install-stamp"
+want="$(node -v) $(node -p process.arch) $(shasum package-lock.json | cut -d' ' -f1)"
+if [ ! -d node_modules ] || [ "$(cat "$stamp" 2>/dev/null)" != "$want" ]; then
   echo "▶ Устанавливаю зависимости…"
+  if [ ! -t 1 ] && command -v osascript >/dev/null; then
+    osascript -e 'display notification "Первый запуск после обновления — 1–3 минуты" with title "Гонки на выживание"' || true
+  fi
+  rm -rf node_modules
   # Браузер для тестов в эфире не нужен.
   PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci --no-audit --no-fund
-  cp package-lock.json "$stamp"
+  echo "$want" >"$stamp"
 fi
 
 echo "▶ Собираю игру…"
