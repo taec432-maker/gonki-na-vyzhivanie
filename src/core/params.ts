@@ -21,6 +21,8 @@ export interface UrlParams {
   car: string | null;
   /** Профиль кадра: выключить части картинки (?off=ao,blur,bloom) — сравнить их цену. */
   off: string[];
+  /** Без звука (?mute). */
+  mute: boolean;
 }
 
 export function readParams(search: string = typeof location !== 'undefined' ? location.search : ''): UrlParams {
@@ -50,5 +52,6 @@ export function readParams(search: string = typeof location !== 'undefined' ? lo
     weather: p.get('weather'),
     car: p.get('car'),
     off: (p.get('off') ?? '').split(',').filter(Boolean),
+    mute: p.has('mute'),
   };
 }
