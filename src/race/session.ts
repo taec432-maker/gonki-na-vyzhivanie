@@ -8,6 +8,7 @@ import type { EffectId } from '../combat/effects';
 import { DEFAULT_MAPPING, resolveGift, type GiftMapping, type Resolved } from '../gifts/mapping';
 import type { TrackDef } from '../tracks/types';
 import type { VehicleSpec } from '../vehicles/types';
+import { parseCarChoice } from './carChoice';
 import { labelName, originalName } from './names';
 import { Leaderboard } from './scores';
 
@@ -29,8 +30,10 @@ export interface Player {
   lastActiveTick: number;
   races: number;
   test: boolean;
-  /** Выбранная машина (id) — этап 6; null — случайная. */
+  /** Выбранная машина (id) — «машина N» в чате; null — случайная. */
   vehicle: string | null;
+  /** Дарил подарки в этой сессии — может выбрать редкую машину. */
+  gifted: boolean;
 }
 
 export interface SessionSettings {
@@ -48,6 +51,14 @@ export interface SessionSettings {
   inactiveMinutes: number;
   /** «Гонка» (возрождение) или «Выживание» (выбывание). */
   mode: 'race' | 'survival';
+  /** Ротация трасс: по кругу, случайно (без повтора подряд) или одна выбранная. */
+  rotation: 'cycle' | 'random' | 'manual';
+  /** Трасса для ручного выбора (id). */
+  track: string;
+  /** Время суток: день, ночь или по очереди. */
+  time: 'day' | 'night' | 'alternate';
+  /** Редкие машины: только тем, кто дарил подарок, или всем. */
+  rareCars: 'gift' | 'free';
 }
 
 export const DEFAULT_SETTINGS: SessionSettings = {
@@ -61,6 +72,10 @@ export const DEFAULT_SETTINGS: SessionSettings = {
   keyword: 'го',
   inactiveMinutes: 15,
   mode: 'race',
+  rotation: 'cycle',
+  track: '',
+  time: 'alternate',
+  rareCars: 'gift',
 };
 
 export function clampSettings(s: Partial<SessionSettings>, base: SessionSettings = DEFAULT_SETTINGS): SessionSettings {
@@ -80,6 +95,10 @@ export function clampSettings(s: Partial<SessionSettings>, base: SessionSettings
     keyword: typeof s.keyword === 'string' && s.keyword.trim() ? s.keyword.trim().slice(0, 24) : base.keyword,
     inactiveMinutes: n(s.inactiveMinutes, 1, 240, base.inactiveMinutes),
     mode: s.mode === 'survival' || s.mode === 'race' ? s.mode : base.mode,
+    rotation: s.rotation === 'cycle' || s.rotation === 'random' || s.rotation === 'manual' ? s.rotation : base.rotation,
+    track: typeof s.track === 'string' ? s.track.slice(0, 40) : base.track,
+    time: s.time === 'day' || s.time === 'night' || s.time === 'alternate' ? s.time : base.time,
+    rareCars: s.rareCars === 'gift' || s.rareCars === 'free' ? s.rareCars : base.rareCars,
   };
 }
 
@@ -101,6 +120,8 @@ export interface SessionEvents {
   results: { results: RaceResult[]; raceIndex: number };
   /** Уничтожение соперника (очки за килл). */
   kill: { killer: SimCar; victim: SimCar };
+  /** Зритель выбрал машину в чате: сразу (лобби), со следующего заезда или отказ (редкая). */
+  'car-choice': { player: Player; spec: VehicleSpec; when: 'now' | 'next' | 'rare' };
   event: { ev: GameEvent };
 }
 
@@ -145,8 +166,10 @@ export const CAR_COLORS = [
 export interface SessionOptions {
   seed: number;
   settings?: Partial<SessionSettings>;
-  /** Трасса для заезда №i (ротация — этап 6). */
-  trackFor: (raceIndex: number) => TrackDef;
+  /** Все трассы для ротации (раздел 9 ТЗ). */
+  tracks?: TrackDef[];
+  /** Принудительно: трасса для заезда №i (тесты, просмотр с ?track=). */
+  trackFor?: (raceIndex: number) => TrackDef;
   /** Ростер машин для трассы. */
   vehiclesFor: (track: TrackDef) => VehicleSpec[];
 }
@@ -163,6 +186,8 @@ export class Session {
   phaseTick = 0;
   tick = 0;
   raceIndex = 0;
+  /** Ночь в текущем заезде (время суток — настройка). */
+  night = false;
   /** Пауза (кнопка «Стоп» в панели). */
   paused = false;
   lastResults: RaceResult[] = [];
@@ -248,6 +273,32 @@ export class Session {
     this.events.emit('car-removed', { car });
   }
 
+  /** Трасса заезда: по настройке ротации; случайная — по seed сессии, без повтора подряд. */
+  private pickTrack(index: number, prev: string | undefined): TrackDef {
+    if (this.opts.trackFor) return this.opts.trackFor(index);
+    const list = this.opts.tracks ?? [];
+    if (list.length === 0) throw new Error('Нет трасс для сессии');
+    const rot = this.settings.rotation;
+    if (rot === 'manual') return list.find((t) => t.id === this.settings.track) ?? (list[0] as TrackDef);
+    if (rot === 'cycle') return list[index % list.length] as TrackDef;
+    const rng = new Rng(hashString(`${this.opts.seed}:track:${index}`));
+    const pool = list.length > 1 ? list.filter((t) => t.id !== prev) : list;
+    return rng.pick(pool);
+  }
+
+  /** Выбор машины из чата: в лобби — сразу, во время заезда — со следующего. */
+  private chooseCar(p: Player, spec: VehicleSpec): void {
+    if (spec.rarity === 'rare' && this.settings.rareCars === 'gift' && !p.gifted) {
+      this.events.emit('car-choice', { player: p, spec, when: 'rare' });
+      return;
+    }
+    p.vehicle = spec.id;
+    const car = this.carOf.get(p.id);
+    const now = !!car && this.phase === 'lobby' && this.sim.phase === 'grid';
+    if (now && car && car.spec.id !== spec.id) this.sim.swapVehicle(car, spec);
+    this.events.emit('car-choice', { player: p, spec, when: now || !car ? 'now' : 'next' });
+  }
+
   /** Боты до минимума; лишние боты уходят, если зрителей уже хватает. */
   private balanceBots(): void {
     const s = this.settings;
@@ -281,7 +332,8 @@ export class Session {
       for (const c of [...old.cars]) this.events.emit('car-removed', { car: c });
       old.dispose();
     }
-    const track = this.opts.trackFor(this.raceIndex);
+    const track = mode === 'restart' && old ? old.track.def : this.pickTrack(this.raceIndex, old?.track.def.id);
+    this.night = this.settings.time === 'night' || (this.settings.time === 'alternate' && this.raceIndex % 2 === 1);
     this.sim = Simulation.createSync({
       seed: this.raceSeed(this.raceIndex),
       track,
@@ -325,6 +377,7 @@ export class Session {
         races: 0,
         test,
         vehicle: null,
+        gifted: false,
       };
       this.players.set(id, p);
     }
@@ -376,13 +429,21 @@ export class Session {
     const known = this.players.get(ev.userId);
     if (known) known.lastActiveTick = this.tick;
     if (ev.kind === 'chat') {
+      const choice = parseCarChoice(ev.text, this.opts.vehiclesFor(this.sim.track.def));
+      // Выбор машины — тоже заявка на участие (даже если вход по ключевому слову).
       const wants =
-        this.settings.joinMode === 'any' || ev.text.toLowerCase().includes(this.settings.keyword.toLowerCase());
+        !!choice ||
+        this.settings.joinMode === 'any' ||
+        ev.text.toLowerCase().includes(this.settings.keyword.toLowerCase());
       if (wants && !known) this.join(ev.userId, ev.name, ev.test);
       else if (wants && known && !this.roster.includes(known) && !this.queue.includes(known))
         this.join(ev.userId, ev.name, ev.test);
+      const p = this.players.get(ev.userId);
+      if (choice && p) this.chooseCar(p, choice);
     } else if (ev.kind === 'gift') {
       if (!known) this.join(ev.userId, ev.name, ev.test);
+      const giver = this.players.get(ev.userId);
+      if (giver) giver.gifted = true;
       this.bump(ev.userId);
       this.applyGift(ev);
     } else if (ev.kind === 'like') {
