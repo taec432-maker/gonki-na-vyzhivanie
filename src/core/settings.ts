@@ -1,6 +1,8 @@
 import { DEFAULT_SETTINGS, clampSettings, type SessionSettings } from '../race/session';
 import { isQualityLevel, type QualityLevel } from '../render/quality';
 import { DEFAULT_MAPPING, sanitizeMapping, type GiftMapping } from '../gifts/mapping';
+import { DEFAULT_VOLUMES, type Volumes } from '../audio/sound';
+import { SETTINGS_FILE_TAG } from './settingsFile';
 
 /**
  * Настройки игры — живут на странице игры (в OBS свой localStorage),
@@ -20,6 +22,8 @@ export interface GameSettings {
   bridge: BridgeSettings;
   /** Маппинг подарок → эффект (раздел 7 ТЗ). */
   gifts: GiftMapping;
+  /** Громкость: общая, музыка, эффекты (0..1). */
+  audio: Volumes;
 }
 
 export const DEFAULT_GAME_SETTINGS: GameSettings = {
@@ -28,6 +32,7 @@ export const DEFAULT_GAME_SETTINGS: GameSettings = {
   resolution: 1,
   bridge: { host: '127.0.0.1', port: 3100, enabled: 'auto' },
   gifts: DEFAULT_MAPPING,
+  audio: DEFAULT_VOLUMES,
 };
 
 const KEY = 'gonki:settings';
@@ -44,6 +49,8 @@ export function sanitizeSettings(raw: unknown): GameSettings {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Partial<GameSettings>;
   const b = (r.bridge ?? {}) as Partial<BridgeSettings>;
   const port = Number(b.port);
+  const a = (r.audio ?? {}) as Partial<Volumes>;
+  const vol = (v: unknown, d: number): number => (Number.isFinite(Number(v)) ? Math.max(0, Math.min(1, Number(v))) : d);
   return {
     session: clampSettings(r.session ?? {}),
     quality: isQualityLevel(r.quality) ? r.quality : DEFAULT_GAME_SETTINGS.quality,
@@ -54,7 +61,26 @@ export function sanitizeSettings(raw: unknown): GameSettings {
       enabled: b.enabled === 'on' || b.enabled === 'off' ? b.enabled : 'auto',
     },
     gifts: r.gifts ? sanitizeMapping(r.gifts) : sanitizeMapping(DEFAULT_MAPPING),
+    audio: {
+      master: vol(a.master, DEFAULT_VOLUMES.master),
+      music: vol(a.music, DEFAULT_VOLUMES.music),
+      sfx: vol(a.sfx, DEFAULT_VOLUMES.sfx),
+    },
   };
+}
+
+/** Разобрать файл настроек. Неизвестные и испорченные поля — значения по умолчанию. */
+export function importSettings(text: string): GameSettings {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    throw new Error('Это не файл настроек: не удалось прочитать JSON');
+  }
+  const r = raw as { app?: unknown; settings?: unknown };
+  if (!r || typeof r !== 'object' || r.app !== SETTINGS_FILE_TAG || !r.settings)
+    throw new Error('Это не файл настроек игры');
+  return sanitizeSettings(r.settings);
 }
 
 export function loadSettings(fresh: boolean): GameSettings {

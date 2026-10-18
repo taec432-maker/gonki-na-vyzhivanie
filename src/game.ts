@@ -1,12 +1,12 @@
 import { FixedStepper, STEP, STEP_HZ } from './core/loop';
 import { LinkChannel, relayUrlFor } from './core/channel';
 import type { UrlParams } from './core/params';
-import { loadSettings, sanitizeSettings, saveSettings, type GameSettings } from './core/settings';
+import { importSettings, loadSettings, sanitizeSettings, saveSettings, type GameSettings } from './core/settings';
 import type { Simulation } from './core/sim';
 import { EventNormalizer } from './bridge/normalize';
 import { MockViewers } from './bridge/mock';
 import { BridgeClient, type BridgeStatus } from './bridge/client';
-import { Sfx } from './audio/sfx';
+import { SoundSystem, giftTier, type EngineSource, type Volumes } from './audio/sound';
 import { sanitizeMapping } from './gifts/mapping';
 import { EffectsRenderer } from './render/fx';
 import { preloadCarModels } from './render/glbCar';
@@ -14,6 +14,7 @@ import { Weather, type WeatherKind } from './render/weather';
 import { WheelFx } from './render/wheelFx';
 import { TrackFxView } from './render/trackFx';
 import { Aurora } from './render/aurora';
+import { Ceremony } from './render/ceremony';
 import { makeWet } from './render/wet';
 import { BridgeIndicator, EventFeed, LikeBar } from './hud/feed';
 import { readableColor } from './hud/nameTags';
@@ -34,7 +35,7 @@ import { FrameStatsMeter } from './hud/stats';
 import { TRACKS, trackById } from './tracks';
 import type { TrackDef } from './tracks/types';
 import { VEHICLES } from './vehicles';
-import type { Group, Mesh } from 'three';
+import { Vector3, type Group, type Mesh } from 'three';
 
 export interface GameStatus {
   state: 'loading' | 'running' | 'stopped';
@@ -81,9 +82,11 @@ export interface GameStatus {
   settings: GameSettings;
   bridge: BridgeStatus | null;
   likes: { bar: number; target: number; bursts: number };
-  feed: { name: string; what: string; effect: string | null; test: boolean }[];
+  feed: { name: string; what: string; effect: string | null; test: boolean; at: number }[];
   leaderboard: { name: string; points: number; wins: number; kills: number; races: number }[];
   eliminated: string[];
+  /** Звук: состояние (running — играет; suspended — ждёт щелчка) и сколько моторов слышно. */
+  audio: { state: string; engines: number };
 }
 
 export interface SoakReport {
@@ -127,7 +130,12 @@ export class Game {
   private likeBar!: LikeBar;
   private bridgeInd!: BridgeIndicator;
   bridge: BridgeClient | null = null;
-  readonly sfx = new Sfx();
+  readonly sound = new SoundSystem();
+  private ceremony!: Ceremony;
+  /** Источники моторов (переиспользуются каждый кадр — без мусора для сборщика). */
+  private readonly engineSources: EngineSource[] = [];
+  private readonly camRight = new Vector3();
+  private lastCount = 0;
   /** Обломки кузова на сцене: id обломка → меш. */
   private readonly debrisMeshes = new Map<number, Mesh>();
   private trackVisual: { key: string; visual: TrackVisual; props: Group } | null = null;
@@ -192,6 +200,9 @@ export class Game {
     this.wheelFx = new WheelFx(this.renderer.scene, this.fx.smoke);
     this.trackFx = new TrackFxView(this.renderer.scene);
     this.aurora = new Aurora(this.renderer.scene);
+    this.ceremony = new Ceremony(this.renderer.scene);
+    this.sound.setVolumes(this.settings.audio);
+    this.bindAudioUnlock();
     onProgress(0.2, 'Машины');
     await preloadCarModels(VEHICLES, import.meta.env.BASE_URL);
     this.session = await Session.create({
@@ -222,16 +233,28 @@ export class Game {
     requestAnimationFrame(this.frame);
   }
 
+  /**
+   * Звук: в OBS играет сразу; в обычном браузере — после первого щелчка или клавиши
+   * (так браузеры защищают от внезапного звука). ?mute — без звука (тесты).
+   */
+  private bindAudioUnlock(): void {
+    if (this.params.mute) return;
+    this.sound.unlock();
+    const unlock = (): void => this.sound.unlock();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
+  }
+
   /** События трассы: телепорт (вспышка и звук), сбитое препятствие (искры и стук). */
   private bindSimEvents(sim: Simulation): void {
     sim.events.on('portal', ({ car, from, to }) => {
-      this.sfx.portal();
+      this.sound.portal();
       this.fx.sparks(from, 6);
       this.fx.highlightCar(car, '#c58bff', 1.2);
       this.director.hotspot(car.id, to, 2);
     });
     sim.events.on('prop-hit', ({ pos }) => {
-      this.sfx.thump();
+      this.sound.thump();
       this.fx.sparks(pos, 3);
     });
   }
@@ -253,7 +276,7 @@ export class Game {
         this.debrisMeshes.set(debris.id, mesh);
       });
       sim.events.on('explode', ({ car, killer }) => {
-        this.sfx.boom();
+        this.sound.boom(car.cur.p, this.renderer.camera.position);
         this.director.hotspot(car.id, car.cur.p, 3);
         if (!killer)
           this.feed.push({
@@ -269,7 +292,11 @@ export class Game {
       sim.events.on('out', ({ car }) =>
         this.feed.push({ name: car.name, what: 'выбыл из гонки', icon: null, emoji: '💀', effect: null, test: false }),
       );
-      sim.events.on('finish', (e) => this.director.hotspot(e.car.id, e.car.cur.p, 2.5));
+      sim.events.on('finish', (e) => {
+        this.director.hotspot(e.car.id, e.car.cur.p, 2.5);
+        if (e.place === 1) this.sound.fanfare();
+      });
+      sim.events.on('crash', (e) => this.sound.hit(e.amount, e.pos, this.renderer.camera.position));
       if (this.trackVisual?.key !== this.trackKey(sim.track.def)) this.loadingTrack = this.ensureTrack(sim.track.def);
     });
     ev.on('car-choice', ({ player, spec, when }) => {
@@ -308,7 +335,7 @@ export class Game {
         test: g.test,
         ...(car ? { color: readableColor(car.color) } : {}),
       });
-      this.sfx.gift();
+      this.sound.gift(giftTier(g.total));
     });
     ev.on('kill', ({ killer, victim }) => {
       this.feed.push({
@@ -327,7 +354,7 @@ export class Game {
     ev.on('likes', (e) => {
       if (e.burst) {
         this.likeBar.burst();
-        this.sfx.nitro();
+        this.sound.nitro();
         this.feed.push({
           name: 'Зрители',
           what: 'лайки',
@@ -489,6 +516,20 @@ export class Game {
     }
   }
 
+  /** Загрузка всех настроек из файла: заезд, качество, Bridge, подарки, звук. */
+  private applyAllSettings(next: GameSettings): void {
+    this.settings = next;
+    this.session.updateSettings(next.session);
+    this.session.mapping = next.gifts;
+    this.renderer.setQuality(next.quality);
+    this.fx.setDensity(this.renderer.quality.particles);
+    this.weather.set(this.weather.kind, this.renderer.quality.particles);
+    this.renderer.setResolutionScale(next.resolution);
+    this.sound.setVolumes(next.audio);
+    this.persist();
+    this.startBridge();
+  }
+
   private persist(): void {
     this.settings.session = { ...this.session.settings };
     saveSettings(this.settings, this.params.fresh);
@@ -570,6 +611,25 @@ export class Game {
         this.session.mapping = this.settings.gifts;
         this.persist();
         break;
+      case 'volume':
+        this.sound.setVolumes(p as Partial<Volumes>);
+        this.settings.audio = sanitizeSettings({ audio: this.sound.volumes }).audio;
+        this.sound.setVolumes(this.settings.audio);
+        this.persist();
+        break;
+      case 'settings-import':
+        try {
+          this.applyAllSettings(importSettings(String(p.text ?? '')));
+          this.channel.send('settings-imported', { ok: true });
+        } catch (e) {
+          this.channel.send('settings-imported', { ok: false, error: (e as Error).message });
+        }
+        break;
+      case 'session-reset':
+        this.session.resetSession();
+        this.saveLeaderboard();
+        this.feed.clear();
+        break;
       case 'leaderboard-reset':
         this.session.leaderboard.reset();
         this.saveLeaderboard();
@@ -634,7 +694,7 @@ export class Game {
       likes: { bar: ses?.likeBar ?? 0, target: this.settings.gifts.likes.target, bursts: ses?.likeBursts ?? 0 },
       feed: (this.feed?.history ?? [])
         .slice(-12)
-        .map((f) => ({ name: f.name, what: f.what, effect: f.effect, test: f.test })),
+        .map((f) => ({ name: f.name, what: f.what, effect: f.effect, test: f.test, at: f.at ?? 0 })),
       leaderboard: (ses?.leaderboard.top(10) ?? []).map((r) => ({
         name: r.name,
         points: r.points,
@@ -643,6 +703,7 @@ export class Game {
         races: r.races,
       })),
       eliminated: (sim?.cars ?? []).filter((c) => c.race.out).map((c) => c.name),
+      audio: this.sound.info(),
     };
   }
 
@@ -663,6 +724,7 @@ export class Game {
       const t1 = performance.now();
       if (steps > 0) this.simMsAvg += ((t1 - t0) / steps - this.simMsAvg) * 0.05;
       this.syncViews();
+      this.updateCeremony();
       const alpha = this.stepper.alpha;
       this.wheels.begin();
       for (const v of this.views.values()) v.update(alpha, this.wheels, this.sim.combat);
@@ -677,6 +739,8 @@ export class Game {
         this.lastTarget = this.director.targetId;
       }
       this.renderer.updateSun(focus, this.director.shot === 'overview');
+      this.ceremony.update(dt);
+      this.updateAudio();
       const target = this.views.get(this.director.targetId);
       const racing = this.session.phase === 'race' || this.session.phase === 'countdown';
       this.hudSpeed.textContent =
@@ -732,6 +796,69 @@ export class Game {
       console.error(e);
     }
   };
+
+  /**
+   * Церемония: на подиуме тройка встаёт на ступени, остальные машины скрыты,
+   * камера ходит дугой перед подиумом. Симуляция при этом не меняется.
+   */
+  private updateCeremony(): void {
+    const on = this.session.phase === 'podium' && !this.loadingTrack;
+    if (on && !this.ceremony.active) {
+      this.ceremony.start(this.sim.track);
+      const top = this.session.lastResults.slice(0, 3);
+      const ids = new Map(top.map((r, i) => [r.id, i]));
+      for (const v of this.views.values()) {
+        const i = ids.get(v.car.id);
+        const spot = i !== undefined ? this.ceremony.spots[i] : undefined;
+        v.pose = spot ?? null;
+        v.hidden = !spot;
+      }
+      this.director.podium = { center: this.ceremony.center, front: this.ceremony.front };
+      this.renderer.cut();
+      this.sound.fanfare();
+    } else if (!on && this.ceremony.active) {
+      this.ceremony.stop();
+      for (const v of this.views.values()) {
+        v.pose = null;
+        v.hidden = false;
+      }
+      this.director.podium = null;
+    }
+  }
+
+  /** Моторы ближайших машин, отсчёт 3-2-1, громкость музыки по фазе. */
+  private updateAudio(): void {
+    const cam = this.renderer.camera;
+    this.camRight.set(1, 0, 0).applyQuaternion(cam.quaternion);
+    const src = this.engineSources;
+    src.length = 0;
+    const ceremony = this.ceremony.active;
+    if (!ceremony)
+      for (const v of this.views.values()) {
+        const c = v.car;
+        if (c.race.out || c.wrecked) continue;
+        const speed = Math.abs(c.phys.forwardSpeed());
+        src.push({
+          id: c.id,
+          pos: v.pos,
+          speed,
+          frac: Math.min(1, speed / c.phys.vmax),
+          throttle: Math.max(0, c.controls.throttle),
+          mass: c.spec.mass,
+        });
+      }
+    this.sound.updateEngines(src, cam.position, this.camRight);
+    // Отсчёт: по одному сигналу на 3, 2, 1 и высокий — на старт.
+    const sim = this.sim;
+    const count = sim.phase === 'countdown' ? Math.ceil(-sim.raceTime) : sim.phase === 'race' ? 0 : -1;
+    if (count !== this.lastCount) {
+      if (count > 0 && count <= 3) this.sound.countdown(false);
+      else if (count === 0 && this.lastCount > 0) this.sound.countdown(true);
+      this.lastCount = count;
+    }
+    const ph = this.session.phase;
+    this.sound.setMusicLevel(ph === 'podium' ? 0.55 : ph === 'countdown' ? 0.6 : ph === 'race' ? 0.75 : 1);
+  }
 
   /** Для тестов: проиграть n шагов сессии синхронно. */
   advance(n: number): void {

@@ -311,7 +311,7 @@ export class Session {
   }
 
   /** Новое лобби: новая симуляция, в заезд — очередь по порядку заявок. */
-  private newLobby(mode: 'first' | 'next' | 'restart' = 'next'): void {
+  private newLobby(mode: 'first' | 'next' | 'restart' | 'reset' = 'next'): void {
     const old = this.sim;
     if (mode === 'restart') {
       // Те же участники — обратно в начало очереди, в том же порядке.
@@ -324,6 +324,9 @@ export class Session {
         p.races++;
         if (this.tick - p.lastActiveTick < idleTicks && this.players.has(p.id)) this.queue.push(p);
       }
+      // Кто давно молчит в очереди — ушёл с эфира: машину ему не даём.
+      this.queue = this.queue.filter((p) => this.tick - p.lastActiveTick < idleTicks);
+      this.forgetIdle();
     }
     this.roster = [];
     this.carOf.clear();
@@ -396,6 +399,17 @@ export class Session {
       this.events.emit('joined', { player: p, where: 'queue' });
     }
     return p;
+  }
+
+  /**
+   * Долгий эфир: зрителей, которые молчат больше часа и не стоят в очереди, забываем
+   * (очки в лидерборде остаются). Иначе за 10 часов эфира копились бы тысячи записей.
+   */
+  private forgetIdle(): void {
+    const limit = Math.max(60, this.settings.inactiveMinutes * 4) * 60 * STEP_HZ;
+    const keep = new Set([...this.roster, ...this.queue]);
+    for (const [id, p] of this.players)
+      if (!keep.has(p) && this.tick - p.lastActiveTick > limit && !this.pending.has(id)) this.players.delete(id);
   }
 
   /** Убрать зрителя (кнопка в панели): из очереди, лобби или с трассы. */
@@ -515,6 +529,23 @@ export class Session {
   /** Сразу к следующему заезду (участники уходят в ротацию). */
   skip(): void {
     this.newLobby();
+  }
+
+  /**
+   * «Сброс сессии» (панель): как новый эфир — нет зрителей, очереди, очков,
+   * подарков до старта и лайков; ротация трасс — с начала. Настройки не трогаются.
+   */
+  resetSession(): void {
+    this.players.clear();
+    this.queue = [];
+    this.roster = [];
+    this.leaderboard.reset();
+    this.likeBar = 0;
+    this.likeBursts = 0;
+    this.lastResults = [];
+    this.raceIndex = 0;
+    this.paused = false;
+    this.newLobby('reset');
   }
 
   private beginCountdown(): void {

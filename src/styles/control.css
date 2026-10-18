@@ -65,8 +65,17 @@ button {
   padding: 7px 12px;
   cursor: pointer;
 }
-button:hover {
+button:hover,
+.file-btn:hover {
   border-color: #46515e;
+}
+/* «Загрузить из файла»: подпись-кнопка вокруг скрытого поля выбора файла. */
+.file-btn {
+  background: #232a33;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 12px;
+  cursor: pointer;
 }
 button.primary {
   background: var(--accent);

@@ -3,6 +3,7 @@ import { LinkChannel, relayUrlFor } from '../core/channel';
 import type { GameStatus } from '../game';
 import { QUALITY, type QualityLevel } from '../render/quality';
 import { mountGifts } from './gifts';
+import { exportSettings } from '../core/settingsFile';
 
 /** Панель стримера: управляет игрой через LinkChannel (BroadcastChannel + ретранслятор). */
 const channel = new LinkChannel('control', relayUrlFor(location));
@@ -22,6 +23,7 @@ app.innerHTML = `
       <button data-cmd="stop">Стоп</button>
       <button data-cmd="restart">Рестарт</button>
       <button data-cmd="next-race">Следующий заезд</button>
+      <button class="danger" id="session-reset">Сброс сессии</button>
     </div>
     <div class="kv" id="status"></div>
   </section>
@@ -63,7 +65,7 @@ app.innerHTML = `
     <h2>Лидерборд сессии</h2>
     <div class="muted">Победа 10, 2-е 6, 3-е 3, участие 1, уничтожение соперника +2.</div>
     <table id="lb"></table>
-    <div class="row"><button id="lb-export">Экспорт JSON</button><button class="danger" id="lb-reset">Сброс сессии</button></div>
+    <div class="row"><button id="lb-export">Экспорт JSON</button><button class="danger" id="lb-reset">Обнулить очки</button></div>
   </section>
   <section>
     <h2>Камера</h2>
@@ -87,6 +89,21 @@ app.innerHTML = `
       <span id="res-val" class="pill">100%</span>
     </div>
     <p class="muted">Если в OBS проседает fps — выберите «Эфир» или уменьшите разрешение.</p>
+  </section>
+  <section>
+    <h2>Звук</h2>
+    <div class="row"><label>Общая <input type="range" id="vol-master" min="0" max="1" step="0.05" /></label><span class="pill" id="vol-master-val"></span></div>
+    <div class="row"><label>Музыка <input type="range" id="vol-music" min="0" max="1" step="0.05" /></label><span class="pill" id="vol-music-val"></span></div>
+    <div class="row"><label>Эффекты <input type="range" id="vol-sfx" min="0" max="1" step="0.05" /></label><span class="pill" id="vol-sfx-val"></span></div>
+    <p class="muted">В OBS звук игры идёт сразу. В обычном браузере — после первого щелчка по окну игры (так браузеры защищают от внезапного звука).</p>
+  </section>
+  <section>
+    <h2>Все настройки — файлом</h2>
+    <div class="row">
+      <button id="settings-save">Сохранить в файл</button>
+      <label class="file-btn">Загрузить из файла <input type="file" id="settings-load" accept=".json,application/json" hidden /></label>
+    </div>
+    <p class="muted" id="settings-msg">Заезд, трассы, подарки → эффекты, Bridge, качество и звук — одним файлом. Удобно сохранить перед экспериментами или перенести на другой компьютер.</p>
   </section>
 </main>`;
 
@@ -148,18 +165,56 @@ $('players').addEventListener('click', (e) => {
   if (b) channel.send('remove-player', { id: b.dataset.remove });
 });
 let settingsLoaded = false;
+let lastStatus: GameStatus | null = null;
+$('session-reset').addEventListener('click', () => {
+  if (
+    confirm(
+      'Сброс сессии: убрать всех зрителей из заезда и очереди, обнулить очки и лайки, начать ротацию трасс с начала. Настройки останутся. Продолжить?',
+    )
+  )
+    channel.send('session-reset', null);
+});
+for (const k of ['master', 'music', 'sfx'] as const) {
+  const input = $<HTMLInputElement>(`vol-${k}`);
+  input.addEventListener('input', () => {
+    $(`vol-${k}-val`).textContent = `${Math.round(Number(input.value) * 100)}%`;
+    channel.send('volume', { [k]: Number(input.value) });
+  });
+}
+const download = (name: string, text: string): void => {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+$('settings-save').addEventListener('click', () => {
+  if (!lastStatus) {
+    $('settings-msg').textContent = 'Игра не на связи — сначала откройте игру.';
+    return;
+  }
+  download(`gonki-nastroiki-${new Date().toISOString().slice(0, 10)}.json`, exportSettings(lastStatus.settings));
+});
+$<HTMLInputElement>('settings-load').addEventListener('change', async (e) => {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file) return;
+  channel.send('settings-import', { text: await file.text() });
+});
+channel.on((msg) => {
+  if (msg.type !== 'settings-imported') return;
+  const r = msg.payload as { ok: boolean; error?: string };
+  $('settings-msg').textContent = r.ok ? 'Настройки загружены и применены.' : `Не загрузилось: ${r.error ?? ''}`;
+  settingsLoaded = false;
+});
 $('lb-export').addEventListener('click', () => channel.send('leaderboard-get', null));
 $('lb-reset').addEventListener('click', () => {
   if (confirm('Обнулить очки всех зрителей за эту сессию?')) channel.send('leaderboard-reset', null);
 });
 channel.on((msg) => {
   if (msg.type !== 'leaderboard') return;
-  const blob = new Blob([JSON.stringify(msg.payload, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `gonki-leaderboard-${new Date().toISOString().slice(0, 10)}.json`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  download(`gonki-leaderboard-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(msg.payload, null, 2));
 });
 $('set-apply').addEventListener('click', () => {
   channel.send('settings', {
@@ -183,6 +238,7 @@ channel.on((msg) => {
   if (msg.type !== 'status') return;
   const s = msg.payload as GameStatus;
   lastSeen = Date.now();
+  lastStatus = s;
   updateGifts(s);
   statusEl.innerHTML = `
     <span class="muted">Состояние</span><span>${STATE[s.state]}</span>
@@ -191,7 +247,8 @@ channel.on((msg) => {
     <span class="muted">Заезд</span><span>№${s.race + 1} · ${PHASE[s.phase] ?? s.phase}${s.phase === 'lobby' || s.phase === 'podium' ? ` · ещё ${Math.ceil(s.secondsLeft)} с` : ` · ${s.raceTime.toFixed(0)} с`}</span>
     <span class="muted">Трасса</span><span>${escHtml(s.trackName)} · ${s.night ? 'ночь' : 'день'}</span>
     <span class="muted">Машин</span><span>${s.cars}</span>
-    <span class="muted">Физика</span><span>${s.simMs} мс/шаг, кадр на процессоре ${s.cpuMs} мс</span>`;
+    <span class="muted">Физика</span><span>${s.simMs} мс/шаг, кадр на процессоре ${s.cpuMs} мс</span>
+    <span class="muted">Звук</span><span>${s.audio.state === 'running' ? `играет · моторов слышно: ${s.audio.engines}` : s.audio.state === 'suspended' ? 'ждёт щелчка по окну игры' : 'выключен'}</span>`;
   const key =
     s.standings
       .map((c) => c.id)
@@ -224,6 +281,13 @@ channel.on((msg) => {
     $<HTMLSelectElement>('set-track').value = ss.track || (s.tracks[0]?.id ?? '');
     $<HTMLSelectElement>('set-time').value = ss.time;
     $<HTMLSelectElement>('set-rare').value = ss.rareCars;
+    for (const k of ['master', 'music', 'sfx'] as const) {
+      const v = s.settings.audio[k];
+      $<HTMLInputElement>(`vol-${k}`).value = String(v);
+      $(`vol-${k}-val`).textContent = `${Math.round(v * 100)}%`;
+    }
+    res.value = String(s.resolution);
+    resVal.textContent = `${Math.round(s.resolution * 100)}%`;
   }
   $('players-head').textContent = `В заезде: ${s.roster.length} · в очереди: ${s.queue.length}`;
   const prow = (p: { id: string; name: string }, where: string) =>
