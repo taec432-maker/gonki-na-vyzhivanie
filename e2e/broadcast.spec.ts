@@ -25,6 +25,14 @@ interface GameHandle {
   session: { lastResults: { id: number }[] };
   views: Map<number, View>;
 }
+interface GpuHandle {
+  loading: boolean;
+  frameCount: number;
+  renderer: { renderer: { info: { memory: { geometries: number } } } };
+  session: { skip(): void };
+  vehicles: { id: string }[];
+  sim: { cars: unknown[]; swapVehicle(car: unknown, spec: unknown): void };
+}
 const st = (page: Page): Promise<Status> =>
   page.evaluate(() => (window as unknown as { __game: GameHandle }).__game.status());
 
@@ -165,5 +173,40 @@ test('панель: звук, настройки файлом туда и обр
   const after = await st(page);
   expect(after.race).toBe(0);
   expect(after.leaderboard).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+test('долгий эфир: смена трасс и первый суперкар не копят память видеокарты', async ({ page }) => {
+  test.setTimeout(15 * 60_000);
+  const errors = collectErrors(page);
+  await page.goto('/?seed=21&bridge=off&fresh&bots=8&quality=broadcast&mute');
+  await waitReady(page);
+  // Счётчик геометрий после того, как трасса загрузилась и отрисовано несколько кадров.
+  const geometries = (): Promise<number> =>
+    page.evaluate(async () => {
+      const g = (window as unknown as { __game: GameHandle & GpuHandle }).__game;
+      while (g.loading) await new Promise((r) => setTimeout(r, 100));
+      const f = g.frameCount;
+      while (g.frameCount < f + 3) await new Promise((r) => setTimeout(r, 50));
+      return g.renderer.renderer.info.memory.geometries;
+    });
+  const cycle = async (): Promise<number> => {
+    for (let i = 0; i < 5; i++) {
+      await page.evaluate(() => (window as unknown as { __game: GameHandle & GpuHandle }).__game.session.skip());
+      await geometries();
+    }
+    return geometries();
+  };
+  const first = await cycle();
+  const second = await cycle();
+  expect(second).toBeLessThanOrEqual(first + 5);
+  // Суперкар (настоящая модель) уже в видеокарте с загрузки — его появление ничего не добавляет.
+  const before = await geometries();
+  await page.evaluate(() => {
+    const g = (window as unknown as { __game: GameHandle & GpuHandle }).__game;
+    const spec = g.vehicles.find((v) => v.id === 'supercar');
+    g.sim.swapVehicle(g.sim.cars[0], spec);
+  });
+  expect(await geometries()).toBeLessThanOrEqual(before + 2);
   expect(errors).toEqual([]);
 });
