@@ -1,4 +1,5 @@
 import {
+  DoubleSide,
   BufferGeometry,
   CanvasTexture,
   Float32BufferAttribute,
@@ -11,7 +12,7 @@ import {
   Vector3,
   type Material,
 } from 'three';
-import { floorSection, jumpOffset, wallLines, type WallLine } from '../physics/trackCollider';
+import { floorSection, jumpGapAt, jumpOffset, wallLines, type WallLine } from '../physics/trackCollider';
 import type { Track } from '../tracks/track';
 import { GROUND_STYLES, groundTexture, roadTexture, type GroundStyle } from './textures';
 
@@ -50,6 +51,7 @@ export function ribbon(
   for (let i = 0; i < n; i++) {
     const sMid = path.sample(i).s + path.step / 2;
     if (opts.include && !opts.include(sMid)) continue;
+    if (jumpGapAt(track, sMid)) continue;
     for (let c = 0; c < cols - 1; c++) {
       const a = i * cols + c;
       const b = a + 1;
@@ -114,6 +116,57 @@ function checkerMaterial(): MeshStandardMaterial {
   const t = new CanvasTexture(c);
   t.colorSpace = SRGBColorSpace;
   return new MeshStandardMaterial({ map: t, roughness: 0.7 });
+}
+
+/**
+ * Откосы: от края полотна вниз до земли там, где дорога выше земли (насыпь, скала у обрыва,
+ * стенки расщелины). На мостах откоса нет.
+ */
+function skirtGeometry(track: Track, groundY: number, slope: number): BufferGeometry {
+  const path = track.path;
+  const n = path.samples.length;
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const index: number[] = [];
+  const p = new Vector3();
+  const sides = [-1, 1] as const;
+  for (let i = 0; i <= n; i++) {
+    const s = i === n ? path.length : path.sample(i).s;
+    const sec = floorSection(track, s);
+    const edge = Math.abs(sec[sec.length - 1] as number);
+    for (const side of sides) {
+      path.pointAt(s, side * edge, p);
+      const top = p.y + jumpOffset(track, s) - 0.02;
+      pos.push(p.x, top, p.z);
+      uv.push(0, s / 6);
+      const drop = Math.max(0, top - groundY);
+      path.pointAt(s, side * (edge + drop * slope), p);
+      pos.push(p.x, groundY - 0.2, p.z);
+      uv.push(drop / 6, s / 6);
+    }
+  }
+  const bridges = track.def.bridges ?? [];
+  for (let i = 0; i < n; i++) {
+    const sMid = path.sample(i).s + path.step / 2;
+    const f = track.fracFromStart(sMid);
+    if (bridges.some((b) => track.inSpan(f, b.from, b.to))) continue;
+    for (let k = 0; k < 2; k++) {
+      const a = i * 4 + k * 2;
+      const b = a + 1;
+      const c = a + 4;
+      const d = c + 1;
+      const hTop = Math.max(pos[a * 3 + 1] as number, pos[c * 3 + 1] as number) - groundY;
+      if (hTop < 0.5) continue;
+      if (k === 0) index.push(a, c, b, b, c, d);
+      else index.push(a, b, c, b, d, c);
+    }
+  }
+  const g = new BufferGeometry();
+  g.setAttribute('position', new Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new Float32BufferAttribute(uv, 2));
+  g.setIndex(index);
+  g.computeVertexNormals();
+  return g;
 }
 
 /** Отбойник: профиль «нью-джерси» вдоль линии (край трассы или шортката). */
@@ -333,9 +386,21 @@ export function buildTrackVisual(track: Track): TrackVisual {
   const groundMat = pbrMaterial(groundKey, 120);
   if (def.groundColor) groundMat.color.set(def.groundColor).multiplyScalar(1.6);
   materials.push(groundMat);
+  const groundY = minY + (def.groundOffset ?? -0.08);
+  if (def.skirt) {
+    const slope = { rock: 0.25, concrete: 0, sand: 1.4, snow: 0.9 }[def.skirt];
+    const mat = pbrMaterial(def.skirt === 'rock' ? 'rock' : def.skirt, 1);
+    for (const t of [mat.map, mat.roughnessMap, mat.normalMap]) t?.repeat.set(1, 1);
+    mat.side = DoubleSide;
+    materials.push(mat);
+    const skirt = new Mesh(skirtGeometry(track, groundY, slope), mat);
+    skirt.receiveShadow = true;
+    skirt.castShadow = true;
+    group.add(skirt);
+  }
   const ground = new Mesh(new PlaneGeometry(3000, 3000), groundMat);
   ground.rotation.x = -Math.PI / 2;
-  ground.position.set(cx, minY + (def.groundOffset ?? -0.08), cz);
+  ground.position.set(cx, groundY, cz);
   ground.receiveShadow = true;
   group.add(ground);
 

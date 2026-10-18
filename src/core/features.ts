@@ -2,7 +2,7 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import { Quaternion, Vector3 } from 'three';
 import type { Lure } from '../ai/pilot';
 import { floorHeight } from '../physics/trackCollider';
-import { RAPIER as R, PROP_GROUPS } from '../physics/world';
+import { RAPIER as R, GROUP, PROP_GROUPS, groups } from '../physics/world';
 import { headingOf, type Track } from '../tracks/track';
 import type { BreakableType } from '../tracks/types';
 
@@ -33,8 +33,15 @@ export interface Breakable {
   handle: number;
   /** Сбит (сдвинулся от места) — для статистики и звука. */
   knocked: boolean;
+  /** Шаг, когда сбит; через четверть секунды предмет перестаёт сталкиваться с машинами. */
+  knockedAt: number;
+  harmless: boolean;
+  collider: RAPIER.Collider;
   home: Vector3;
 }
+
+/** Сбитый предмет: лежит на земле и у стен, но машины проезжают сквозь (не застревают на нём). */
+const LYING_GROUPS = groups(GROUP.PROP, GROUP.FLOOR | GROUP.WALL);
 
 /** Размеры разрушаемых (полуразмеры коллайдера) и масса, кг. */
 export const BREAKABLE_SIZE: Record<BreakableType, { hx: number; hy: number; hz: number; mass: number }> = {
@@ -107,7 +114,17 @@ export class TrackFeatures {
           body,
         );
         body.sleep();
-        const b: Breakable = { id: id++, type: g.type, body, handle: collider.handle, knocked: false, home: p.clone() };
+        const b: Breakable = {
+          id: id++,
+          type: g.type,
+          body,
+          handle: collider.handle,
+          knocked: false,
+          knockedAt: 0,
+          harmless: false,
+          collider,
+          home: p.clone(),
+        };
         this.breakables.push(b);
         this.byHandle.set(collider.handle, b);
       }
@@ -137,12 +154,22 @@ export class TrackFeatures {
     return false;
   }
 
-  /** После шага физики: какие препятствия сбиты. */
-  update(): void {
+  /** После шага физики: какие препятствия сбиты; сбитые почти сразу перестают мешать машинам (иначе лежащий щит — трамплин). */
+  update(tick: number): void {
     for (const b of this.breakables) {
-      if (b.knocked) continue;
+      if (b.harmless) continue;
+      if (b.knocked) {
+        if (tick - b.knockedAt > 15) {
+          b.collider.setCollisionGroups(LYING_GROUPS);
+          b.harmless = true;
+        }
+        continue;
+      }
       const t = b.body.translation();
-      if ((t.x - b.home.x) ** 2 + (t.z - b.home.z) ** 2 > 0.5) b.knocked = true;
+      if ((t.x - b.home.x) ** 2 + (t.z - b.home.z) ** 2 > 0.5) {
+        b.knocked = true;
+        b.knockedAt = tick;
+      }
     }
   }
 }

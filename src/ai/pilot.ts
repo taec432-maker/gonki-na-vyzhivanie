@@ -95,6 +95,8 @@ export class AiPilot {
   /** Целевая жертва тарана и до какого шага охотимся. */
   ramTarget: number | null = null;
   ramUntil = 0;
+  /** До какого шага ехать осторожнее (после респауна). */
+  private cautiousUntil = 0;
   private readonly rng: Rng;
   readonly out: Controls = { throttle: 0, brake: 0, steer: 0 };
 
@@ -254,7 +256,9 @@ export class AiPilot {
       else base = plannedAt(s);
       return Math.max(-lim, Math.min(lim, base + sideShift));
     };
-    followLine(path, me, offsetAt, speedAt, this.out, this.traits.pace);
+    // После возврата на трассу — 20 с осторожнее (иначе бот повторяет ту же ошибку в том же повороте).
+    const pace = tick < this.cautiousUntil ? this.traits.pace * 0.88 : this.traits.pace;
+    followLine(path, me, offsetAt, speedAt, this.out, pace);
 
     // Не въезжать в зад: тормозим, если не успеваем по дистанции до впереди идущего.
     if (blocker && ramD === null && me.speed > blocker.speed) {
@@ -294,7 +298,13 @@ export class AiPilot {
     }
   }
 
-  /** Сброс после респауна. */
+  /** После респауна: сброс анти-застревания и 20 с осторожной езды. */
+  afterRespawn(tick: number, progress: number): void {
+    this.resetStuck(tick, progress);
+    this.cautiousUntil = tick + 20 * 60;
+  }
+
+  /** Сброс анти-застревания (респаун, телепорт). */
   resetStuck(tick: number, progress: number): void {
     this.stuckTicks = 0;
     this.reverseUntil = 0;

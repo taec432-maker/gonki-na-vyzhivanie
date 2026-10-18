@@ -1,0 +1,142 @@
+{
+  "id": "desert",
+  "name": "Каньон",
+  "description": "Закат в пустыне: длинные прямые, песчаные обочины и трамплин через расщелину",
+  "points": [
+    [0.0, 0.3, 0.0],
+    [0.0, 0.6, -96.0],
+    [0.0, 3.5, -184.0],
+    [0.0, 8.5, -248.0],
+    [0.0, 10.0, -280.0],
+    [0.0, 10.0, -320.0],
+    [0.0, 10.0, -368.0],
+    [0.0, 6.5, -424.0],
+    [0.0, 1.0, -488.0],
+    [20.0, 0.5, -568.0],
+    [96.0, 0.5, -640.0],
+    [208.0, 0.8, -640.0],
+    [320.0, 1.0, -576.0],
+    [376.0, 1.4, -480.0],
+    [400.0, 1.6, -368.0],
+    [376.0, 1.2, -272.0],
+    [416.0, 1.0, -184.0],
+    [448.0, 0.8, -80.0],
+    [416.0, 0.6, 16.0],
+    [320.0, 0.4, 72.0],
+    [192.0, 0.3, 80.0],
+    [80.0, 0.3, 64.0],
+    [16.0, 0.3, 40.0]
+  ],
+  "width": 16,
+  "surface": "asphalt",
+  "zones": [
+    {
+      "from": 0.58,
+      "to": 0.63,
+      "surface": "sand"
+    }
+  ],
+  "shoulder": {
+    "width": 5,
+    "surface": "sand"
+  },
+  "walls": {
+    "offset": 2.5,
+    "height": 0.9
+  },
+  "checkpoints": 10,
+  "startAt": 0.02,
+  "lighting": "desert-sunset",
+  "lightingNight": "desert-night",
+  "weather": "dust",
+  "groundColor": "#c29a63",
+  "ground": "sand",
+  "groundOffset": -0.4,
+  "skirt": "rock",
+  "fallDepth": 3,
+  "jumps": [
+    {
+      "at": 0.1295,
+      "height": 1.8,
+      "length": 40,
+      "gap": 14
+    }
+  ],
+  "boosts": [
+    {
+      "from": 0.86,
+      "to": 0.89,
+      "d": 0,
+      "halfWidth": 3
+    },
+    {
+      "from": 0.115,
+      "to": 0.135,
+      "d": 0,
+      "halfWidth": 5
+    }
+  ],
+  "breakables": [
+    {
+      "type": "barrel",
+      "at": 0.33,
+      "d": -10,
+      "count": 6,
+      "spacing": 2.5,
+      "stagger": 0.8
+    },
+    {
+      "type": "billboard",
+      "at": 0.5,
+      "d": 11.5,
+      "count": 1,
+      "rot": -0.2
+    },
+    {
+      "type": "crate",
+      "at": 0.72,
+      "d": 9.5,
+      "count": 5,
+      "spacing": 2.2
+    }
+  ],
+  "props": [
+    {
+      "type": "rock",
+      "span": {
+        "from": 0,
+        "to": 1
+      },
+      "side": 0,
+      "every": 26,
+      "d": 8,
+      "rows": 3,
+      "jitter": 6,
+      "scale": 4
+    },
+    {
+      "type": "rock",
+      "span": {
+        "from": 0.3,
+        "to": 0.7
+      },
+      "side": 0,
+      "every": 60,
+      "d": 35,
+      "jitter": 10,
+      "scale": 16
+    },
+    {
+      "type": "cactus",
+      "span": {
+        "from": 0,
+        "to": 1
+      },
+      "side": 0,
+      "every": 31,
+      "d": 4,
+      "rows": 2,
+      "jitter": 5
+    }
+  ]
+}

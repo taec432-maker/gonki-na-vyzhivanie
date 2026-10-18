@@ -40,6 +40,8 @@ export interface JumpDef {
   height: number;
   /** Длина разгонной части (м). */
   length: number;
+  /** Расщелина за трамплином, м: полотна нет — недолёт = падение и возврат на трассу. */
+  gap?: number;
 }
 
 export interface TeleportDef {
@@ -142,7 +144,7 @@ export interface TrackDef {
   shortcuts?: ShortcutDef[];
   props?: PropDef[];
   breakables?: BreakableDef[];
-  /** Ниже этой высоты относительно дороги — вылет (обрыв): урон и возврат на трассу. */
+  /** Насколько ниже полотна (м) машина считается упавшей (обрыв, расщелина): урон и возврат на трассу. */
   fallDepth?: number;
   /** Ростер машин локации (id), пусто — все обычные. */
   roster?: string[];
@@ -153,4 +155,8 @@ export interface TrackDef {
   areas?: AreaDef[];
   /** Высота земли относительно дороги (для каньонов/обрывов — сильно ниже). */
   groundOffset?: number;
+  /** Откос от края полотна до земли там, где дорога выше земли: скала, бетон, песок, снег. */
+  skirt?: 'rock' | 'concrete' | 'sand' | 'snow';
+  /** Участки-мосты (доли круга): без откоса, с фермами. */
+  bridges?: Span[];
 }

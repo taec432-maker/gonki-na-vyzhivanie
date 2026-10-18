@@ -68,9 +68,24 @@ export class Track {
       chance: sc.chance ?? 0.4,
     }));
     const cps = def.checkpoints;
+    // Равномерные ворота сдвигаются на самый прямой участок рядом (±3 % круга): на остром
+    // повороте машины срезают угол и линию ворот не пересекают. Старт (0) — на месте.
+    const straightest = (f: number): number => {
+      let best = f;
+      let bestK = Infinity;
+      for (let k = -30; k <= 30; k++) {
+        const g = f + k * 0.001;
+        const curv = Math.abs(this.path.curvatureAt(this.sFromFrac(g)));
+        if (curv < bestK - 1e-4) {
+          bestK = curv;
+          best = g;
+        }
+      }
+      return best;
+    };
     const fractions =
       typeof cps === 'number'
-        ? Array.from({ length: cps }, (_, i) => i / cps)
+        ? Array.from({ length: cps }, (_, i) => (i === 0 ? 0 : straightest(i / cps)))
         : [0, ...cps.filter((f) => f > 0 && f < 1)];
     this.gates = fractions.map((f, index) => this.makeGate(index, this.path.wrapS(this.startS + f * this.path.length)));
   }

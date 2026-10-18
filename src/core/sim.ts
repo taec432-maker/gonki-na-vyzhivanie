@@ -147,7 +147,7 @@ export interface RaceConfig {
 export const DEFAULT_RACE: Omit<RaceConfig, 'seed' | 'track' | 'vehicles'> = {
   laps: 3,
   timeLimit: 240,
-  grace: 30,
+  grace: 45,
   countdown: 3,
   mode: 'race',
 };
@@ -394,7 +394,7 @@ export class Simulation {
     car.hint = pr.index;
     // Прогресс после переноса меньше прежнего — иначе анти-застревание сработает снова и снова.
     car.race.progress = this.tracker.progressOf(car.race, car.s);
-    car.pilot.resetStuck(this.tick, car.race.progress);
+    car.pilot.afterRespawn(this.tick, car.race.progress);
     this.events.emit('respawn', { car, reason });
   }
 
@@ -804,13 +804,20 @@ export class Simulation {
           this.combat.addTimed(car, 'nitro', 1.2, 1, car.id);
       }
       // Улетел вниз (обрыв, за пределы) — вернуть на трассу.
-      if (racing && t.y < Math.min(pr.y, this.minY) - (this.track.def.fallDepth ?? 12)) this.respawn(car, 'fall');
+      const fell = this.track.def.fallDepth
+        ? t.y < pr.y - this.track.def.fallDepth
+        : t.y < Math.min(pr.y, this.minY) - 12;
+      if (racing && fell) {
+        // Вылет с обрыва или в расщелину: урон и возврат на трассу (раздел 9 ТЗ).
+        if (this.track.def.fallDepth && !car.wrecked) this.combat.damage(car, 15, 'fall');
+        this.respawn(car, 'fall');
+      }
     }
     if (racing) {
       this.combat.postStep();
       this.updateDamage();
     }
-    this.features.update();
+    this.features.update(this.tick);
     this.updateDebris();
     this.updatePhase();
     this.tick++;

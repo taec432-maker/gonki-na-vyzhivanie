@@ -46,11 +46,15 @@ export function buildSpeedProfile(
     v[i] = Math.min(vCap, k > 1e-5 ? Math.sqrt(aLat / k) : vCap);
   }
   // Обратный проход (дважды — трасса замкнута): успеть затормозить.
+  // Под горку тормозной путь длиннее: гравитация «помогает» разгону (g·sin уклона).
   const ds = path.step;
   for (let pass = 0; pass < 2; pass++) {
     for (let i = n - 1; i >= 0; i--) {
       const next = v[(i + 1) % n] as number;
-      const lim = Math.sqrt(next * next + 2 * aBrake * ds);
+      const dy = path.sample(i + 1).pos.y - path.sample(i).pos.y;
+      const slope = dy / ds;
+      const brake = Math.max(2.5, aBrake + 9.81 * Math.min(0, slope));
+      const lim = Math.sqrt(next * next + 2 * brake * ds);
       if ((v[i] as number) > lim) v[i] = lim;
     }
   }

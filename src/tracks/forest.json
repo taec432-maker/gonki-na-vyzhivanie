@@ -1,0 +1,145 @@
+{
+  "id": "forest",
+  "name": "Зимний лес",
+  "description": "Снегопад и ели, ледяной мост над замёрзшей рекой, ночью — северное сияние",
+  "points": [
+    [0, 0.5, 0],
+    [0, 0.8, -140],
+    [-30, 1.2, -260],
+    [-120, 1.0, -330],
+    [-240, 0.8, -320],
+    [-320, 0.6, -240],
+    [-330, 0.5, -120],
+    [-300, 2.5, -20],
+    [-260, 5.0, 60],
+    [-200, 5.5, 120],
+    [-130, 5.0, 170],
+    [-60, 2.5, 200],
+    [30, 0.8, 230],
+    [140, 0.6, 210],
+    [220, 0.8, 140],
+    [240, 1.0, 40],
+    [190, 0.8, -20],
+    [120, 0.6, 10],
+    [60, 0.5, 50],
+    [15, 0.5, 55]
+  ],
+  "width": 12,
+  "surface": "asphalt",
+  "zones": [
+    {
+      "from": 0.52,
+      "to": 0.555,
+      "surface": "ice"
+    },
+    {
+      "from": 0.22,
+      "to": 0.28,
+      "surface": "snow"
+    }
+  ],
+  "shoulder": {
+    "width": 3,
+    "surface": "snow"
+  },
+  "walls": {
+    "offset": 1.2,
+    "height": 1.0
+  },
+  "checkpoints": 10,
+  "startAt": 0.02,
+  "lighting": "forest-day",
+  "lightingNight": "forest-night",
+  "weather": "snow",
+  "groundColor": "#e8eef5",
+  "ground": "snow",
+  "groundOffset": -0.3,
+  "skirt": "snow",
+  "bridges": [
+    {
+      "from": 0.47,
+      "to": 0.61
+    }
+  ],
+  "areas": [
+    {
+      "type": "ground",
+      "rect": [-300, 20, -60, 230],
+      "y": -0.05,
+      "style": "ice"
+    }
+  ],
+  "breakables": [
+    {
+      "type": "cone",
+      "at": 0.45,
+      "d": -4.8,
+      "count": 5,
+      "spacing": 2.5
+    },
+    {
+      "type": "crate",
+      "at": 0.75,
+      "d": 6.5,
+      "count": 4,
+      "spacing": 2
+    },
+    {
+      "type": "billboard",
+      "at": 0.9,
+      "d": -9,
+      "count": 1,
+      "rot": 0.2
+    }
+  ],
+  "props": [
+    {
+      "type": "snowpine",
+      "span": {
+        "from": 0,
+        "to": 0.46
+      },
+      "side": 0,
+      "every": 9,
+      "d": 4,
+      "rows": 4,
+      "jitter": 3,
+      "scale": 1.35
+    },
+    {
+      "type": "snowpine",
+      "span": {
+        "from": 0.62,
+        "to": 1
+      },
+      "side": 0,
+      "every": 9,
+      "d": 4,
+      "rows": 4,
+      "jitter": 3,
+      "scale": 1.35
+    },
+    {
+      "type": "lamp",
+      "span": {
+        "from": 0.46,
+        "to": 0.62
+      },
+      "side": 0,
+      "every": 24,
+      "d": 0.4
+    },
+    {
+      "type": "greyrock",
+      "span": {
+        "from": 0,
+        "to": 1
+      },
+      "side": 0,
+      "every": 70,
+      "d": 8,
+      "jitter": 8,
+      "scale": 3
+    }
+  ]
+}

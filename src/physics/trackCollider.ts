@@ -18,9 +18,20 @@ export function floorSection(track: Track, s: number): number[] {
   return [-edge, -half, -half * 0.5, 0, half * 0.5, half, edge];
 }
 
+/** Расщелина за трамплином: в этой точке нет полотна. */
+export function jumpGapAt(track: Track, s: number): boolean {
+  for (const j of track.def.jumps ?? []) {
+    if (!j.gap) continue;
+    const u = track.path.deltaS(track.sFromFrac(j.at), s);
+    if (u > 0 && u < j.gap) return true;
+  }
+  return false;
+}
+
 /** Признак: в этой точке стены нет (обрыв, переулок); side — с какой стороны (без side — с обеих). */
 export function wallGapAt(track: Track, s: number, side?: 1 | -1): boolean {
   const f = track.fracFromStart(s);
+  if (jumpGapAt(track, s)) return true;
   return (track.def.walls.gaps ?? []).some(
     (g) => (g.side === undefined || side === undefined || g.side === side) && track.inSpan(f, g.from, g.to),
   );
@@ -109,7 +120,8 @@ export function buildTrackColliders(world: RAPIER.World, track: Track): TrackCol
   let t = 0;
   for (let i = 0; i < n; i++) {
     const i2 = (i + 1) % n;
-    // Обрыв за трамплином: не соединяем край трамплина с полотном за ним (там «расщелина»).
+    // Расщелина за трамплином: полотна нет.
+    if (jumpGapAt(track, path.sample(i).s + path.step / 2)) continue;
     for (let c = 0; c < cols - 1; c++) {
       const a = i * cols + c;
       const b = i * cols + c + 1;
