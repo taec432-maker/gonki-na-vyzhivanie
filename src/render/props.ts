@@ -88,7 +88,7 @@ function windowsTexture(): { map: CanvasTexture; emissive: CanvasTexture } {
     };
     for (let y = 0; y < 4; y++)
       for (let x = 0; x < 6; x++) {
-        const on = rnd() < 0.45;
+        const on = rnd() < 0.32;
         if (lit)
           ctx.fillStyle = on ? `rgb(255,${200 + Math.floor(rnd() * 40)},${130 + Math.floor(rnd() * 60)})` : '#000';
         else ctx.fillStyle = rnd() < 0.5 ? '#2b3440' : '#3a4654';
@@ -470,7 +470,7 @@ export function buildProps(track: Track, night = false): PropsVisual {
   const lampMat = K.lamp?.material as MeshStandardMaterial;
   lampMat.emissive.set(night ? '#ffd29a' : '#000000');
   lampMat.emissiveIntensity = night ? 2.5 : 0;
-  (K.building?.material as MeshStandardMaterial).emissiveIntensity = night ? 1.6 : 0;
+  (K.building?.material as MeshStandardMaterial).emissiveIntensity = night ? 0.85 : 0;
   const byType = new Map<string, Placement[]>();
   for (const p of placements) {
     const list = byType.get(p.type) ?? [];

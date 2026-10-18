@@ -22,6 +22,9 @@ export class LobbyScreen {
     this.podium = root.querySelector('#podium') as HTMLElement;
   }
 
+  /** Список машин для выбора из чата (номер, название, ★ — редкая). */
+  vehicles: { number: number; name: string; rare: boolean }[] = [];
+
   update(dt: number, session: Session): void {
     this.acc += dt;
     const ph = session.phase;
@@ -45,17 +48,21 @@ export class LobbyScreen {
         <span class="nm" style="color:${readableColor(c.color)}">${esc(c.name)}</span><span class="car">${esc(c.spec.name)}</span></div>`,
       )
       .join('');
+    const cars2 = this.vehicles
+      .map((v) => `<span><b>${v.number}</b> ${esc(v.name)}${v.rare ? ' ★' : ''}</span>`)
+      .join('');
     const q = s.queue
       .slice(0, 6)
       .map((p) => esc(p.name))
       .join(', ');
     this.lobby.innerHTML = `
-      <div class="lb-head"><div class="lb-title">Заезд №${s.raceIndex + 1} · ${esc(s.sim.track.def.name)}</div>
+      <div class="lb-head"><div class="lb-title">Заезд №${s.raceIndex + 1} · ${esc(s.sim.track.def.name)}${s.night ? ' · ночь' : ''}</div>
       <div class="lb-time">Старт через <b>${formatTime(s.secondsLeft).replace(/\.\d$/, '')}</b></div></div>
       <div class="lb-cta">Напиши в чат ${kw} — и твоя машина на старте!</div>
       <div class="lb-grid">${rows}</div>
       <div class="lb-meta">На старте ${cars.length} из ${s.settings.maxCars} · кругов: ${s.settings.laps}</div>
-      ${s.queue.length ? `<div class="lb-queue">В очереди ${s.queue.length}: ${q}${s.queue.length > 6 ? '…' : ''}</div>` : ''}`;
+      ${s.queue.length ? `<div class="lb-queue">В очереди ${s.queue.length}: ${q}${s.queue.length > 6 ? '…' : ''}</div>` : ''}
+      ${this.vehicles.length ? `<div class="lb-cars-title">Своя машина — напиши «машина 7»${s.settings.rareCars === 'gift' ? ' (★ — после подарка)' : ''}</div><div class="lb-cars">${cars2}</div>` : ''}`;
   }
 
   private renderPodium(s: Session): void {

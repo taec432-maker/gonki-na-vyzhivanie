@@ -43,6 +43,13 @@ app.innerHTML = `
     <h2>Настройки заезда</h2>
     <div class="row"><label>Режим
       <select id="set-mode"><option value="race">«Гонка» — возрождение через 3 с</option><option value="survival">«Выживание» — взрыв и выбывание</option></select></label></div>
+    <div class="row"><label>Трассы
+      <select id="set-rotation"><option value="cycle">по кругу</option><option value="random">случайно</option><option value="manual">одна выбранная</option></select></label>
+      <select id="set-track"></select></div>
+    <div class="row"><label>Время суток
+      <select id="set-time"><option value="alternate">день и ночь по очереди</option><option value="day">всегда день</option><option value="night">всегда ночь</option></select></label></div>
+    <div class="row"><label>Редкие машины
+      <select id="set-rare"><option value="gift">только тем, кто дарил подарок</option><option value="free">всем</option></select></label></div>
     <div class="row"><label>Машин на трассе <input type="number" id="set-max" min="6" max="16" step="1" /></label></div>
     <div class="row"><label>Кругов <input type="number" id="set-laps" min="1" max="10" step="1" /></label></div>
     <div class="row"><label>Лобби, с <input type="number" id="set-lobby" min="5" max="300" step="5" /></label>
@@ -163,6 +170,10 @@ $('set-apply').addEventListener('click', () => {
     joinMode: $<HTMLSelectElement>('set-join').value,
     mode: $<HTMLSelectElement>('set-mode').value,
     keyword: $<HTMLInputElement>('set-keyword').value,
+    rotation: $<HTMLSelectElement>('set-rotation').value,
+    track: $<HTMLSelectElement>('set-track').value,
+    time: $<HTMLSelectElement>('set-time').value,
+    rareCars: $<HTMLSelectElement>('set-rare').value,
   });
   settingsLoaded = false;
 });
@@ -178,6 +189,7 @@ channel.on((msg) => {
     <span class="muted">Кадр</span><span>${s.fps} fps (${s.frameMs} мс)</span>
     <span class="muted">Draw calls</span><span>${s.drawCalls}</span>
     <span class="muted">Заезд</span><span>№${s.race + 1} · ${PHASE[s.phase] ?? s.phase}${s.phase === 'lobby' || s.phase === 'podium' ? ` · ещё ${Math.ceil(s.secondsLeft)} с` : ` · ${s.raceTime.toFixed(0)} с`}</span>
+    <span class="muted">Трасса</span><span>${escHtml(s.trackName)} · ${s.night ? 'ночь' : 'день'}</span>
     <span class="muted">Машин</span><span>${s.cars}</span>
     <span class="muted">Физика</span><span>${s.simMs} мс/шаг, кадр на процессоре ${s.cpuMs} мс</span>`;
   const key =
@@ -205,6 +217,13 @@ channel.on((msg) => {
     $<HTMLSelectElement>('set-join').value = ss.joinMode;
     $<HTMLSelectElement>('set-mode').value = ss.mode;
     $<HTMLInputElement>('set-keyword').value = ss.keyword;
+    $<HTMLSelectElement>('set-track').innerHTML = s.tracks
+      .map((t) => `<option value="${escHtml(t.id)}">${escHtml(t.name)}</option>`)
+      .join('');
+    $<HTMLSelectElement>('set-rotation').value = ss.rotation;
+    $<HTMLSelectElement>('set-track').value = ss.track || (s.tracks[0]?.id ?? '');
+    $<HTMLSelectElement>('set-time').value = ss.time;
+    $<HTMLSelectElement>('set-rare').value = ss.rareCars;
   }
   $('players-head').textContent = `В заезде: ${s.roster.length} · в очереди: ${s.queue.length}`;
   const prow = (p: { id: string; name: string }, where: string) =>

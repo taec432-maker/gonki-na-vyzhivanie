@@ -13,6 +13,7 @@ import { preloadCarModels } from './render/glbCar';
 import { Weather, type WeatherKind } from './render/weather';
 import { WheelFx } from './render/wheelFx';
 import { TrackFxView } from './render/trackFx';
+import { Aurora } from './render/aurora';
 import { makeWet } from './render/wet';
 import { BridgeIndicator, EventFeed, LikeBar } from './hud/feed';
 import { readableColor } from './hud/nameTags';
@@ -59,9 +60,22 @@ export interface GameStatus {
   renderMs: number;
   /** Что включено в картинке (тени, AO, размытие…). */
   features: string[];
+  trackName: string;
+  night: boolean;
+  /** Все трассы ротации (для выбора в панели). */
+  tracks: { id: string; name: string }[];
   triangles: number;
   camera: { manualId: number | null; targetId: number; shot: string };
-  standings: { id: number; name: string; color: string; lap: number; finished: boolean; playerId: string | null }[];
+  standings: {
+    id: number;
+    name: string;
+    color: string;
+    lap: number;
+    finished: boolean;
+    playerId: string | null;
+    /** Машина (id из ростера). */
+    vehicle: string;
+  }[];
   roster: { id: string; name: string }[];
   queue: { id: string; name: string }[];
   settings: GameSettings;
@@ -76,6 +90,8 @@ export interface SoakReport {
   races: number;
   allFinished: boolean;
   respawns: number;
+  /** Из них — возвраты после вылета с обрыва или недолёта трамплина (это часть трассы, не застревание). */
+  falls: number;
   /** Худший случай: сколько секунд машина не продвигалась. */
   maxNoProgress: number;
   perRace: { finished: number; cars: number; time: number; respawns: number; winner: string }[];
@@ -104,6 +120,7 @@ export class Game {
   private weather!: Weather;
   private wheelFx!: WheelFx;
   private trackFx!: TrackFxView;
+  private aurora!: Aurora;
   private lastShot = '';
   private lastTarget = -1;
   feed!: EventFeed;
@@ -164,6 +181,7 @@ export class Game {
     this.nameTags = new NameTags(hudRoot);
     this.hud = new RaceHud(hudRoot);
     this.lobby = new LobbyScreen(hudRoot);
+    this.lobby.vehicles = VEHICLES.map((v) => ({ number: v.number, name: v.name, rare: v.rarity === 'rare' }));
     this.feed = new EventFeed(hudRoot);
     this.likeBar = new LikeBar(hudRoot);
     this.bridgeInd = new BridgeIndicator(hudRoot);
@@ -173,6 +191,7 @@ export class Game {
     this.weather = new Weather(this.renderer.scene);
     this.wheelFx = new WheelFx(this.renderer.scene, this.fx.smoke);
     this.trackFx = new TrackFxView(this.renderer.scene);
+    this.aurora = new Aurora(this.renderer.scene);
     onProgress(0.2, 'Машины');
     await preloadCarModels(VEHICLES, import.meta.env.BASE_URL);
     this.session = await Session.create({
@@ -252,6 +271,23 @@ export class Game {
       );
       sim.events.on('finish', (e) => this.director.hotspot(e.car.id, e.car.cur.p, 2.5));
       if (this.trackVisual?.key !== this.trackKey(sim.track.def)) this.loadingTrack = this.ensureTrack(sim.track.def);
+    });
+    ev.on('car-choice', ({ player, spec, when }) => {
+      const car = this.session.carForPlayer(player.id);
+      this.feed.push({
+        name: player.name,
+        what:
+          when === 'rare'
+            ? `${spec.name} ★ — редкая, нужен подарок`
+            : when === 'next'
+              ? `выбрал «${spec.name}» (со следующего заезда)`
+              : `выбрал «${spec.name}»`,
+        icon: null,
+        emoji: when === 'rare' ? '🔒' : '🚗',
+        effect: null,
+        test: player.test,
+        color: car ? readableColor(car.color) : undefined,
+      });
     });
     ev.on('gift', ({ ev: g, resolved, outcome, carId }) => {
       const car = carId !== null ? this.sim.carById(carId) : undefined;
@@ -344,6 +380,7 @@ export class Game {
     this.wheelFx.setTrack(this.sim.track);
     this.wheelFx.wet = preset.wet > 0;
     this.fx.smoke.setLight(preset.smokeLight);
+    this.aurora.set(!!preset.aurora);
     this.renderer.scene.add(visual.group, props.group);
     this.trackVisual = { key: this.trackKey(def), visual, props: props.group };
     this.director.chase.occluders = [props.group];
@@ -576,6 +613,9 @@ export class Game {
       cpuMs: +this.cpuMsAvg.toFixed(3),
       renderMs: +this.renderMsAvg.toFixed(2),
       features: this.renderer.features,
+      trackName: sim?.track.def.name ?? '',
+      night: ses?.night ?? false,
+      tracks: TRACKS.map((t) => ({ id: t.id, name: t.name })),
       triangles: this.lastStats.triangles,
       camera: { manualId: this.director.manualId, targetId: this.director.targetId, shot: this.director.shot },
       standings: (sim?.standings() ?? []).map((c) => ({
@@ -585,6 +625,7 @@ export class Game {
         lap: c.race.lap,
         finished: c.race.finished,
         playerId: c.playerId,
+        vehicle: c.spec.id,
       })),
       roster: (ses?.roster ?? []).map((p) => ({ id: p.id, name: p.rawName })),
       queue: (ses?.queue ?? []).map((p) => ({ id: p.id, name: p.rawName })),
@@ -662,6 +703,7 @@ export class Game {
       this.wheelFx.update(dt, this.views);
       this.trackFx.update(dt, this.views);
       this.weather.update(dt, this.renderer.camera);
+      this.aurora.update(dt, this.renderer.camera);
       if (this.fx.shake > 0 && this.director.shot !== 'overview') {
         const k = this.fx.shake * this.fx.shake * 0.35;
         this.renderer.camera.position.x += (Math.random() - 0.5) * k;
@@ -714,7 +756,7 @@ export class Game {
    */
   async soak(n: number): Promise<SoakReport> {
     this.soaking = true;
-    const report: SoakReport = { races: 0, allFinished: true, respawns: 0, maxNoProgress: 0, perRace: [] };
+    const report: SoakReport = { races: 0, allFinished: true, respawns: 0, falls: 0, maxNoProgress: 0, perRace: [] };
     const ses = this.session;
     const saved = { ...ses.settings };
     ses.updateSettings({ lobbySeconds: 5, podiumSeconds: 3 });
@@ -723,8 +765,10 @@ export class Game {
         const sim = ses.sim;
         let respawns = 0;
         const lastMove = new Map<number, { p: number; t: number }>();
+        sim.events.on('revive', (e) => lastMove.delete(e.car.id));
         sim.events.on('respawn', (e) => {
           respawns++;
+          if (e.reason === 'fall') report.falls++;
           // После респауна машина откатывается к чекпойнту — отсчёт «без прогресса» начинаем заново.
           lastMove.delete(e.car.id);
         });
@@ -735,7 +779,8 @@ export class Game {
           if (sim.phase === 'race') {
             for (const c of sim.cars) {
               const m = lastMove.get(c.id);
-              if (!m || c.race.progress > m.p + 5 || c.race.finished)
+              // Взорванная машина 3 с стоит до возрождения — это не застревание.
+              if (!m || c.race.progress > m.p + 5 || c.race.finished || c.wrecked || c.race.out)
                 lastMove.set(c.id, { p: c.race.progress, t: sim.tick });
               else report.maxNoProgress = Math.max(report.maxNoProgress, (sim.tick - m.t) * STEP);
             }
