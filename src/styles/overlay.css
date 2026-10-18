@@ -1,0 +1,86 @@
+/* Оверлей: прозрачный фон, крупный читаемый текст с обводкой — поверх любой картинки. */
+html,
+body {
+  margin: 0;
+  background: transparent;
+  font-family:
+    'Inter',
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  color: #fff;
+  overflow: hidden;
+}
+#overlay {
+  position: fixed;
+  inset: 0;
+}
+.ov-board {
+  position: absolute;
+  right: 28px;
+  bottom: 120px;
+  width: 360px;
+  padding: 14px 18px;
+  border-radius: 14px;
+  background: rgba(10, 12, 18, 0.72);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+}
+.ov-title {
+  font-size: 20px;
+  font-weight: 800;
+  color: #ffcc00;
+  margin-bottom: 8px;
+}
+#ov-lb {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+#ov-lb li {
+  display: grid;
+  grid-template-columns: 30px 1fr auto;
+  gap: 8px;
+  font-size: 19px;
+  font-weight: 700;
+  padding: 3px 0;
+}
+#ov-lb li:nth-child(1) .pl {
+  color: #ffd84a;
+}
+#ov-lb .pl {
+  opacity: 0.8;
+}
+#ov-lb .nm {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#ov-lb .pt {
+  color: #ffcc00;
+}
+#ov-lb .empty {
+  display: block;
+  font-size: 16px;
+  opacity: 0.7;
+}
+.ov-feed {
+  position: absolute;
+  left: 28px;
+  bottom: 120px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 640px;
+}
+.ov-card {
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: rgba(10, 12, 18, 0.72);
+  font-size: 20px;
+  text-shadow: 0 1px 2px #000;
+}
+.ov-card b {
+  color: #ffcc00;
+}

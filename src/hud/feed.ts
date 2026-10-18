@@ -13,6 +13,8 @@ export interface FeedItem {
   color?: string;
   /** Значок вместо иконки подарка (системные события: взрыв, выбывание). */
   emoji?: string;
+  /** Когда случилось (Date.now()) — оверлей прячет старые события. */
+  at?: number;
 }
 
 /** Лента событий: карточки «Ник ▸ Подарок ▸ Эффект» на 3 с, не больше 5 одновременно. */
@@ -28,7 +30,14 @@ export class EventFeed {
     parent.append(this.root);
   }
 
+  /** Сброс сессии: лента с чистого листа. */
+  clear(): void {
+    this.history.length = 0;
+    this.root.replaceChildren();
+  }
+
   push(item: FeedItem): void {
+    item.at = Date.now();
     this.history.push(item);
     if (this.history.length > 50) this.history.shift();
     const el = document.createElement('div');
