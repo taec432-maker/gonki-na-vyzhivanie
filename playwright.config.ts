@@ -13,7 +13,14 @@ export default defineConfig({
     baseURL: `http://127.0.0.1:${PORT}`,
     viewport: { width: 1920, height: 1080 },
     launchOptions: {
-      args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--enable-webgl'],
+      args: [
+        '--use-angle=swiftshader',
+        '--enable-unsafe-swiftshader',
+        '--ignore-gpu-blocklist',
+        '--enable-webgl',
+        // Как в OBS: звук без щелчка по странице.
+        '--autoplay-policy=no-user-gesture-required',
+      ],
     },
   },
   webServer: {
