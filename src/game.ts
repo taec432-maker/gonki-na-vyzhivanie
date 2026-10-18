@@ -9,7 +9,7 @@ import { BridgeClient, type BridgeStatus } from './bridge/client';
 import { SoundSystem, giftTier, type EngineSource, type Volumes } from './audio/sound';
 import { sanitizeMapping } from './gifts/mapping';
 import { EffectsRenderer } from './render/fx';
-import { preloadCarModels } from './render/glbCar';
+import { buildGlbCarModel, preloadCarModels } from './render/glbCar';
 import { Weather, type WeatherKind } from './render/weather';
 import { WheelFx } from './render/wheelFx';
 import { TrackFxView } from './render/trackFx';
@@ -186,6 +186,11 @@ export class Game {
     this.channel.on((msg) => this.onCommand(msg.type, msg.payload));
   }
 
+  /** Идёт загрузка трассы (тесты ждут её окончания). */
+  get loading(): boolean {
+    return this.loadingTrack !== null;
+  }
+
   get sim(): Simulation {
     return this.session.sim;
   }
@@ -233,6 +238,7 @@ export class Game {
     this.startBridge();
     onProgress(0.3, 'Трасса и освещение');
     await this.ensureTrack(this.sim.track.def);
+    this.warmUpModels();
     this.syncViews();
     onProgress(1, 'Готово');
     this.ready = true;
@@ -250,6 +256,30 @@ export class Game {
     const unlock = (): void => this.sound.unlock();
     window.addEventListener('pointerdown', unlock, { once: true });
     window.addEventListener('keydown', unlock, { once: true });
+  }
+
+  /**
+   * Настоящие модели (суперкар) — один кадр под экраном загрузки: видеокарта заранее
+   * получает геометрию и шейдеры. Иначе первая такая машина посреди эфира (подарок
+   * «Смена машины») даёт заметный рывок кадра.
+   */
+  private warmUpModels(): void {
+    const cam = this.renderer.camera;
+    const models = VEHICLES.filter((v) => v.model)
+      .map((v) => buildGlbCarModel(v, '#888888'))
+      .filter((m) => m !== null);
+    if (!models.length) return;
+    const ahead = new Vector3(0, 0, -8).applyQuaternion(cam.quaternion).add(cam.position);
+    for (const m of models) {
+      m.root.position.copy(ahead);
+      this.renderer.scene.add(m.root);
+    }
+    this.renderer.render(0);
+    for (const m of models) {
+      this.renderer.scene.remove(m.root);
+      // Геометрия модели общая для всех копий — остаётся; копии краски — освобождаем.
+      for (const p of m.paints ?? [m.paint]) p.dispose();
+    }
   }
 
   /** События трассы: телепорт (вспышка и звук), сбитое препятствие (искры и стук). */
