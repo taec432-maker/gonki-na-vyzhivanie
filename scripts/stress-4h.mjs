@@ -101,6 +101,8 @@ async function sample(label, full = false) {
     label,
     minute: +elapsedMin().toFixed(1),
     heapMB: +(heap.usedSize / 1048576).toFixed(1),
+    // Буферы данных (геометрия, звук) живут вне JS-heap — их утечку heap не покажет.
+    buffersMB: +((heap.backingStorageSize ?? 0) / 1048576).toFixed(1),
     domNodes: m.Nodes,
     listeners: m.JSEventListeners,
     ...st,
@@ -172,26 +174,42 @@ const growth = ((avg(late, 'heapMB') - avg(early, 'heapMB')) / avg(early, 'heapM
 const cpuRatio = avg(late, 'cpuMs') / Math.max(0.01, avg(early, 'cpuMs'));
 const simRatio = avg(late, 'simMs') / Math.max(0.001, avg(early, 'simMs'));
 const domGrowth = avg(late, 'domNodes') - avg(early, 'domNodes');
+const pct = (k) => ((avg(late, k) - avg(early, k)) / Math.max(1, avg(early, k))) * 100;
+const buffersGrowth = pct('buffersMB');
+const geoGrowth = pct('geometries');
+const texGrowth = pct('textures');
 const races = (samples.at(-1)?.race ?? 0) + 1;
-const ok = errors.length === 0 && growth < 20 && cpuRatio < 1.5 && simRatio < 1.5;
+const ok =
+  errors.length === 0 &&
+  growth < 20 &&
+  buffersGrowth < 20 &&
+  geoGrowth < 20 &&
+  texGrowth < 20 &&
+  cpuRatio < 1.5 &&
+  simRatio < 1.5;
 const md = [
   `# Стресс-тест ${minutes} мин`,
   '',
-  '| Минута | Heap, МБ | DOM-узлов | Обработчиков | Геометрий | Текстур | Объектов сцены | Заезд | Трасса | Зрителей | Процессор на кадр, мс | Физика на шаг, мс |',
-  '|---|---|---|---|---|---|---|---|---|---|---|---|',
+  '| Минута | Heap, МБ | Буферы, МБ | DOM-узлов | Обработчиков | Геометрий | Текстур | Объектов сцены | Заезд | Трасса | Зрителей | Процессор на кадр, мс | Физика на шаг, мс |',
+  '|---|---|---|---|---|---|---|---|---|---|---|---|---|',
   ...samples.map(
     (s) =>
-      `| ${s.minute} | ${s.heapMB} | ${s.domNodes} | ${s.listeners} | ${s.geometries} | ${s.textures} | ${s.sceneObjects} | ${s.race + 1} | ${s.track} | ${s.players} | ${s.cpuMs} | ${s.simMs} |`,
+      `| ${s.minute} | ${s.heapMB} | ${s.buffersMB} | ${s.domNodes} | ${s.listeners} | ${s.geometries} | ${s.textures} | ${s.sceneObjects} | ${s.race + 1} | ${s.track} | ${s.players} | ${s.cpuMs} | ${s.simMs} |`,
   ),
   '',
   `Заездов: ${races}. Средний heap: ${avg(early, 'heapMB').toFixed(1)} МБ в начале → ${avg(late, 'heapMB').toFixed(1)} МБ в конце (${growth >= 0 ? '+' : ''}${growth.toFixed(1)} %).`,
+  `Буферы данных: ${avg(early, 'buffersMB').toFixed(1)} → ${avg(late, 'buffersMB').toFixed(1)} МБ (${buffersGrowth.toFixed(1)} %), геометрий в видеокарте: ${geoGrowth.toFixed(1)} %, текстур: ${texGrowth.toFixed(1)} %.`,
   `Процессор на кадр: ×${cpuRatio.toFixed(2)}, физика на шаг: ×${simRatio.toFixed(2)}, DOM-узлов: ${domGrowth >= 0 ? '+' : ''}${domGrowth.toFixed(0)}.`,
   `Ошибок в консоли: ${errors.length}. Итог: ${ok ? 'утечек и деградации нет' : 'ЕСТЬ ПРОБЛЕМЫ'}.`,
 ];
 writeFileSync(`${out}/report.md`, md.join('\n'));
 writeFileSync(
   `${out}/report.json`,
-  JSON.stringify({ minutes, samples, errors, growth, cpuRatio, simRatio, ok }, null, 2),
+  JSON.stringify(
+    { minutes, samples, errors, growth, buffersGrowth, geoGrowth, texGrowth, cpuRatio, simRatio, ok },
+    null,
+    2,
+  ),
 );
 console.info(md.join('\n'));
 await browser.close();
