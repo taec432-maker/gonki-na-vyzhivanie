@@ -24,8 +24,9 @@ tmp="$(mktemp -d)"
 curl -fsSL --retry 3 "$TARBALL" -o "$tmp/game.tgz"
 mkdir -p "$tmp/x"
 tar -xzf "$tmp/game.tgz" -C "$tmp/x" --strip-components 1
-# Новые файлы поверх старых; зависимости и сборку не трогаем — так быстрее.
-rsync -a --delete --exclude node_modules --exclude dist "$tmp/x/" "$GAME/"
+# Новые файлы вместо старых; зависимости (node_modules) и сборку не трогаем — так быстрее.
+find "$GAME" -mindepth 1 -maxdepth 1 ! -name node_modules ! -name dist -exec rm -rf {} +
+cp -R "$tmp/x/." "$GAME/"
 rm -rf "$tmp"
 
 say "Готовлю Node.js, собираю игру (первый раз — 1–3 минуты)…"
@@ -72,7 +73,8 @@ notify "Обновляю и запускаю…"
 tmp="$(mktemp -d)"
 if curl -fsSL --max-time 120 --retry 2 "$TARBALL" -o "$tmp/game.tgz" && mkdir -p "$tmp/x" &&
   tar -xzf "$tmp/game.tgz" -C "$tmp/x" --strip-components 1; then
-  rsync -a --delete --exclude node_modules --exclude dist "$tmp/x/" "$GAME/"
+  find "$GAME" -mindepth 1 -maxdepth 1 ! -name node_modules ! -name dist -exec rm -rf {} +
+  cp -R "$tmp/x/." "$GAME/"
 else
   echo "Обновить не удалось (нет интернета?) — запускаю имеющуюся версию."
 fi
