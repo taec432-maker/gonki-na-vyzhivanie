@@ -1,0 +1,27 @@
+{
+  "id": "pickup",
+  "number": 6,
+  "name": "Пикап",
+  "category": "power",
+  "rarity": "common",
+  "placeholder": true,
+  "model": null,
+  "body": "pickup",
+  "mass": 2050,
+  "powerKw": 330,
+  "maxSpeedKmh": 210,
+  "grip": 0.98,
+  "hp": 120,
+  "dims": {
+    "length": 5.4,
+    "width": 2.0,
+    "height": 1.85
+  },
+  "wheelbase": 3.3,
+  "track": 1.72,
+  "wheelRadius": 0.4,
+  "drive": "awd",
+  "steer": 0.92,
+  "nameTagHeight": 2.8,
+  "colors": ["#8d1919", "#e9e5d8", "#2f3e46", "#ff8800", "#3b5b2a", "#1d3557"]
+}

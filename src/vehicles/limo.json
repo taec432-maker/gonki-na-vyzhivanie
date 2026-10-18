@@ -1,0 +1,27 @@
+{
+  "id": "limo",
+  "number": 10,
+  "name": "Лимузин",
+  "category": "odd",
+  "rarity": "rare",
+  "placeholder": true,
+  "model": null,
+  "body": "limo",
+  "mass": 2500,
+  "powerKw": 480,
+  "maxSpeedKmh": 235,
+  "grip": 1.02,
+  "hp": 110,
+  "dims": {
+    "length": 6.6,
+    "width": 1.95,
+    "height": 1.45
+  },
+  "wheelbase": 4.4,
+  "track": 1.64,
+  "wheelRadius": 0.36,
+  "drive": "rwd",
+  "steer": 0.9,
+  "nameTagHeight": 2.4,
+  "colors": ["#0b0b0d", "#f5f5f5", "#c9a227", "#7a0019"]
+}

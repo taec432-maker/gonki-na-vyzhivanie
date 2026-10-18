@@ -145,7 +145,7 @@ export class CameraDirector {
       case 'closeup': {
         if (!view) break;
         this.orbitAngle += dt * 0.25;
-        const r = 6.2 * Math.sqrt(view.car.phys.scale);
+        const r = Math.max(6.2, view.car.spec.dims.length * 1.35) * Math.sqrt(view.car.phys.scale);
         // Угол облёта — относительно машины: камера сбоку-спереди, машина в центре кадра.
         const a = view.car.phys.heading() + 0.9 + Math.sin(this.orbitAngle) * 0.6;
         // Направление «вперёд» машины — (sin h, −cos h); поворачиваем его на угол облёта.

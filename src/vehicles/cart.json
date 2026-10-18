@@ -1,0 +1,27 @@
+{
+  "id": "cart",
+  "number": 13,
+  "name": "Тележка с мотором",
+  "category": "odd",
+  "rarity": "common",
+  "placeholder": true,
+  "model": null,
+  "body": "cart",
+  "mass": 420,
+  "powerKw": 120,
+  "maxSpeedKmh": 195,
+  "grip": 1.02,
+  "hp": 60,
+  "dims": {
+    "length": 1.9,
+    "width": 1.1,
+    "height": 1.15
+  },
+  "wheelbase": 1.2,
+  "track": 0.9,
+  "wheelRadius": 0.17,
+  "drive": "rwd",
+  "steer": 1.15,
+  "nameTagHeight": 2.0,
+  "colors": ["#c0c0c0", "#d00000", "#1d6fd8", "#2fbf71"]
+}

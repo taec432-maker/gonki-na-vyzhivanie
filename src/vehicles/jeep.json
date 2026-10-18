@@ -1,0 +1,27 @@
+{
+  "id": "jeep",
+  "number": 7,
+  "name": "Джип",
+  "category": "power",
+  "rarity": "common",
+  "placeholder": true,
+  "model": null,
+  "body": "jeep",
+  "mass": 1900,
+  "powerKw": 310,
+  "maxSpeedKmh": 205,
+  "grip": 0.98,
+  "hp": 115,
+  "dims": {
+    "length": 4.4,
+    "width": 1.92,
+    "height": 1.85
+  },
+  "wheelbase": 2.55,
+  "track": 1.62,
+  "wheelRadius": 0.42,
+  "drive": "awd",
+  "steer": 0.95,
+  "nameTagHeight": 2.8,
+  "colors": ["#4b5320", "#e0d8c3", "#c1121f", "#1b263b", "#f4a261", "#111111"]
+}

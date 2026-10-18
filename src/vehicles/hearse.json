@@ -1,0 +1,27 @@
+{
+  "id": "hearse",
+  "number": 9,
+  "name": "Катафалк",
+  "category": "odd",
+  "rarity": "common",
+  "placeholder": true,
+  "model": null,
+  "body": "hearse",
+  "mass": 2150,
+  "powerKw": 345,
+  "maxSpeedKmh": 215,
+  "grip": 0.98,
+  "hp": 110,
+  "dims": {
+    "length": 5.6,
+    "width": 1.95,
+    "height": 1.5
+  },
+  "wheelbase": 3.5,
+  "track": 1.62,
+  "wheelRadius": 0.36,
+  "drive": "rwd",
+  "steer": 0.95,
+  "nameTagHeight": 2.5,
+  "colors": ["#0d0d0f", "#2b2d42", "#4a0e0e", "#e8e8e8"]
+}

@@ -60,6 +60,8 @@ export const carMaterials = {
       };
       return m;
     }),
+  /** Вафельный рожок фургона мороженщика. */
+  waffle: () => cached('waffle', () => new MeshStandardMaterial({ name: 'waffle', color: '#c98b4a', roughness: 0.85 })),
   metalDark: () =>
     cached(
       'metalDark',

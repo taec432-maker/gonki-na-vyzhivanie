@@ -1,0 +1,27 @@
+{
+  "id": "icecream",
+  "number": 14,
+  "name": "Фургон мороженщика",
+  "category": "odd",
+  "rarity": "common",
+  "placeholder": true,
+  "model": null,
+  "body": "icecream",
+  "mass": 2500,
+  "powerKw": 380,
+  "maxSpeedKmh": 205,
+  "grip": 0.97,
+  "hp": 130,
+  "dims": {
+    "length": 5.2,
+    "width": 2.1,
+    "height": 2.6
+  },
+  "wheelbase": 3.2,
+  "track": 1.78,
+  "wheelRadius": 0.4,
+  "drive": "rwd",
+  "steer": 0.9,
+  "nameTagHeight": 3.4,
+  "colors": ["#f7c6d9", "#bde0fe", "#fff3b0", "#caffbf"]
+}

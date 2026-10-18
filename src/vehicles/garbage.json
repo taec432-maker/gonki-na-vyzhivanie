@@ -1,0 +1,27 @@
+{
+  "id": "garbage",
+  "number": 15,
+  "name": "Мусоровоз",
+  "category": "odd",
+  "rarity": "common",
+  "placeholder": true,
+  "model": null,
+  "body": "garbage",
+  "mass": 7500,
+  "powerKw": 1150,
+  "maxSpeedKmh": 195,
+  "grip": 1.0,
+  "hp": 140,
+  "dims": {
+    "length": 7.0,
+    "width": 2.5,
+    "height": 3.2
+  },
+  "wheelbase": 4.0,
+  "track": 2.0,
+  "wheelRadius": 0.52,
+  "drive": "rwd",
+  "steer": 0.85,
+  "nameTagHeight": 4.0,
+  "colors": ["#2e7d32", "#f57c00", "#eceff1", "#1565c0"]
+}

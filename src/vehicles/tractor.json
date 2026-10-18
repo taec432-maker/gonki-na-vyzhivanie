@@ -1,0 +1,28 @@
+{
+  "id": "tractor",
+  "number": 11,
+  "name": "Трактор",
+  "category": "odd",
+  "rarity": "common",
+  "placeholder": true,
+  "model": null,
+  "body": "tractor",
+  "mass": 2600,
+  "powerKw": 400,
+  "maxSpeedKmh": 200,
+  "grip": 1.05,
+  "hp": 140,
+  "dims": {
+    "length": 3.9,
+    "width": 2.05,
+    "height": 2.6
+  },
+  "wheelbase": 2.3,
+  "track": 1.62,
+  "wheelRadius": 0.48,
+  "rearWheelRadius": 0.72,
+  "drive": "rwd",
+  "steer": 0.95,
+  "nameTagHeight": 3.4,
+  "colors": ["#2e7d32", "#d62828", "#1565c0", "#f9a825"]
+}

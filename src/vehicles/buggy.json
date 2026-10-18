@@ -1,0 +1,27 @@
+{
+  "id": "buggy",
+  "number": 16,
+  "name": "Багги",
+  "category": "odd",
+  "rarity": "common",
+  "placeholder": true,
+  "model": null,
+  "body": "buggy",
+  "mass": 950,
+  "powerKw": 230,
+  "maxSpeedKmh": 210,
+  "grip": 1.05,
+  "hp": 90,
+  "dims": {
+    "length": 3.7,
+    "width": 1.9,
+    "height": 1.55
+  },
+  "wheelbase": 2.4,
+  "track": 1.62,
+  "wheelRadius": 0.42,
+  "drive": "rwd",
+  "steer": 1.1,
+  "nameTagHeight": 2.5,
+  "colors": ["#ff6d00", "#76ff03", "#00b0ff", "#ffd600", "#d50000"]
+}

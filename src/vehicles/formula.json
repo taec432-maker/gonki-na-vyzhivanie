@@ -1,0 +1,28 @@
+{
+  "id": "formula",
+  "number": 1,
+  "name": "Формула",
+  "category": "race",
+  "rarity": "rare",
+  "placeholder": true,
+  "model": null,
+  "body": "formula",
+  "mass": 760,
+  "powerKw": 520,
+  "maxSpeedKmh": 290,
+  "grip": 1.25,
+  "hp": 70,
+  "dims": {
+    "length": 5.0,
+    "width": 1.95,
+    "height": 0.95
+  },
+  "wheelbase": 3.1,
+  "track": 1.62,
+  "wheelRadius": 0.33,
+  "rearWheelRadius": 0.36,
+  "drive": "rwd",
+  "steer": 1.05,
+  "nameTagHeight": 1.9,
+  "colors": ["#d00000", "#f5f5f5", "#0b3d91", "#ffb703", "#111111", "#00a86b"]
+}

@@ -1,0 +1,27 @@
+{
+  "id": "rally",
+  "number": 4,
+  "name": "Ралли-хэтчбек",
+  "category": "race",
+  "rarity": "common",
+  "placeholder": true,
+  "model": null,
+  "body": "hatch",
+  "mass": 1250,
+  "powerKw": 260,
+  "maxSpeedKmh": 215,
+  "grip": 1.08,
+  "hp": 100,
+  "dims": {
+    "length": 4.1,
+    "width": 1.85,
+    "height": 1.45
+  },
+  "wheelbase": 2.55,
+  "track": 1.58,
+  "wheelRadius": 0.33,
+  "drive": "awd",
+  "steer": 1.1,
+  "nameTagHeight": 2.3,
+  "colors": ["#1e5bc6", "#f2f2f2", "#e63946", "#ffcc00", "#2b2d42", "#06d6a0"]
+}

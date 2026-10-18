@@ -1,0 +1,27 @@
+{
+  "id": "armored",
+  "number": 8,
+  "name": "Бронемашина",
+  "category": "power",
+  "rarity": "rare",
+  "placeholder": true,
+  "model": null,
+  "body": "armored",
+  "mass": 5200,
+  "powerKw": 850,
+  "maxSpeedKmh": 200,
+  "grip": 1.0,
+  "hp": 160,
+  "dims": {
+    "length": 5.6,
+    "width": 2.4,
+    "height": 2.3
+  },
+  "wheelbase": 3.4,
+  "track": 2.0,
+  "wheelRadius": 0.55,
+  "drive": "awd",
+  "steer": 0.85,
+  "nameTagHeight": 3.3,
+  "colors": ["#3f4a3c", "#6b705c", "#2b2b2b", "#8a7f6a"]
+}
