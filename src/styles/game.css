@@ -351,9 +351,9 @@ body {
 }
 #podium {
   left: 50%;
-  top: 40px;
+  top: 28px;
   transform: translateX(-50%);
-  padding: 18px 34px;
+  padding: 14px 34px;
   min-width: 760px;
   text-align: center;
 }
@@ -361,7 +361,7 @@ body {
   font-size: 40px;
   font-weight: 900;
   color: var(--accent);
-  margin-bottom: 18px;
+  margin-bottom: 10px;
 }
 .pd-row {
   display: grid;
@@ -387,27 +387,20 @@ body {
   opacity: 0.8;
   font-variant-numeric: tabular-nums;
 }
-.pd-step {
-  width: 100%;
-  border-radius: 8px 8px 0 0;
-  font-size: 52px;
-  font-weight: 900;
-  color: #111;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.pd-medal {
+  font-size: 40px;
+  line-height: 1;
 }
-.first .pd-step {
-  height: 120px;
-  background: linear-gradient(#ffe066, #e0a800);
+.pd-points {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--accent);
 }
-.second .pd-step {
-  height: 88px;
-  background: linear-gradient(#e8eef5, #a6b1bd);
-}
-.third .pd-step {
-  height: 64px;
-  background: linear-gradient(#f0b27a, #b26a2e);
+.pd-points.bot {
+  font-size: 16px;
+  font-weight: 600;
+  color: inherit;
+  opacity: 0.6;
 }
 .first .pd-name {
   font-size: 32px;

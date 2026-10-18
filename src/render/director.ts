@@ -20,6 +20,8 @@ export class CameraDirector {
   lobbyOffset = false;
   /** id победителя на подиуме — камера облетает его машину. */
   winnerId: number | null = null;
+  /** Церемония: центр подиума и его «лицо» — камера плавно ходит дугой перед ним. */
+  podium: { center: Vector3; front: Vector3 } | null = null;
   /** Принудительный режим (тесты, панель): общий план. */
   forceOverview = false;
   /** Крупный план: медленный облёт машины, за которой следим (кнопка в панели). */
@@ -128,6 +130,20 @@ export class CameraDirector {
       case 'winner': {
         const wv = views.get(this.winnerId ?? -1);
         if (!wv) break;
+        if (this.podium) {
+          // Дуга ±35° перед подиумом, вся тройка в кадре; подиум — в нижней половине кадра.
+          this.orbitAngle += dt * 0.22;
+          const { center, front } = this.podium;
+          const a = Math.sin(this.orbitAngle) * 0.6;
+          const fx = front.x * Math.cos(a) - front.z * Math.sin(a);
+          const fz = front.x * Math.sin(a) + front.z * Math.cos(a);
+          const r = 19;
+          cam.position.set(center.x + fx * r, center.y + 5.2, center.z + fz * r);
+          cam.lookAt(center.x, center.y + 3.6, center.z);
+          this.focus.copy(center);
+          this.targetId = this.winnerId ?? this.targetId;
+          break;
+        }
         this.orbitAngle += dt * 0.3;
         const r = 8.5 * Math.sqrt(wv.car.phys.scale);
         const target = wv.pos;

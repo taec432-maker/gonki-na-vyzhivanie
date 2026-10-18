@@ -80,6 +80,10 @@ export class CarView {
   private readonly baseColor: Color;
   /** Оторванные части-обломки (меш следует за телом обломка в симуляции). */
   readonly debris = new Map<number, Mesh>();
+  /** Церемония: машина стоит на ступени подиума (только картинка, физика не трогается). */
+  pose: { pos: Vector3; quat: Quaternion } | null = null;
+  /** Церемония: машины не из тройки скрыты. */
+  hidden = false;
 
   constructor(scene: Scene, car: SimCar) {
     this.scene = scene;
@@ -164,10 +168,19 @@ export class CarView {
       this.disguised = mower;
       this.rebuild(wantSpec);
     }
-    this.model.root.visible = !c.race.out;
-    if (c.race.out) return;
-    this.pos.lerpVectors(c.prev.p, c.cur.p, alpha);
-    this.quat.slerpQuaternions(c.prev.q, c.cur.q, alpha);
+    this.model.root.visible = !c.race.out && !this.hidden;
+    if (c.race.out || this.hidden) return;
+    if (this.pose) {
+      // На ступени: кузов на высоте подвески над ступенью (как стоял бы на асфальте).
+      const w = c.phys.wheels[0];
+      const r = c.phys.wheelPos[0]?.r ?? 0.35;
+      this.pos.copy(this.pose.pos);
+      this.pos.y += (r - (w?.y ?? NOMINAL_WHEEL_Y)) * c.phys.scale;
+      this.quat.copy(this.pose.quat);
+    } else {
+      this.pos.lerpVectors(c.prev.p, c.cur.p, alpha);
+      this.quat.slerpQuaternions(c.prev.q, c.cur.q, alpha);
+    }
     const root = this.model.root;
     root.position.copy(this.pos);
     root.quaternion.copy(this.quat);

@@ -112,7 +112,7 @@ export class NameTags {
       const t = this.tags.get(id);
       if (!t) continue;
       const car = v.car;
-      if (car.race.out && !car.phys.ghost && v.model.root.visible === false) {
+      if (v.hidden || (car.race.out && !car.phys.ghost && v.model.root.visible === false)) {
         t.visible = false;
         t.el.style.display = 'none';
         continue;

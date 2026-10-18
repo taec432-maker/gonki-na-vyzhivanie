@@ -1,6 +1,7 @@
 import type { Session } from '../race/session';
 import { esc, formatTime } from './format';
 import { readableColor } from './nameTags';
+import { POINTS } from '../race/scores';
 
 /**
  * Экран лобби (этап 2): кто записался, очередь, обратный отсчёт и подсказка
@@ -70,17 +71,21 @@ export class LobbyScreen {
     const key = `${s.raceIndex}|${Math.ceil(s.secondsLeft)}`;
     if (key === this.podiumKey) return;
     this.podiumKey = key;
+    // Тройка стоит на 3D-подиуме под этим табло: 2-е место слева, 1-е в центре, 3-е справа.
     const top = [res[1], res[0], res[2]];
     const cls = ['second', 'first', 'third'];
-    const place = [2, 1, 3];
+    const medal = ['🥈', '🥇', '🥉'];
+    const bonus = [POINTS.second, POINTS.first, POINTS.third];
     const cols = top
-      .map((r, i) =>
-        r
-          ? `<div class="pd-col ${cls[i]}"><div class="pd-name">${esc(r.name)}</div>
-            <div class="pd-time">${r.finished && r.time !== null ? formatTime(r.time) : `${r.laps} кр.`}</div>
-            <div class="pd-step">${place[i]}</div></div>`
-          : '<div class="pd-col"></div>',
-      )
+      .map((r, i) => {
+        if (!r) return '<div class="pd-col"></div>';
+        const row = r.playerId ? s.leaderboard.rows.get(r.playerId) : undefined;
+        const pts = r.playerId
+          ? `<div class="pd-points">+${POINTS.participation + (bonus[i] as number)} очков${row ? ` · всего ${row.points}` : ''}</div>`
+          : '<div class="pd-points bot">бот — без очков</div>';
+        return `<div class="pd-col ${cls[i]}"><div class="pd-medal">${medal[i]}</div><div class="pd-name">${esc(r.name)}</div>
+          <div class="pd-time">${r.finished && r.time !== null ? formatTime(r.time) : `${r.laps} кр.`}</div>${pts}</div>`;
+      })
       .join('');
     const rest = res
       .slice(3, 12)
