@@ -2,6 +2,7 @@
 
 3D-игра для TikTok Live: зрители пишут ник в чат и попадают в гонку машинкой со своим ником; подарки дают ускорение, оружие и «пакости». Three.js + Rapier, работает в браузере и в OBS.
 
+- **Как вести эфир (OBS, Bridge, панель, что делать, если не работает):** [docs/СТРИМ.md](docs/СТРИМ.md)
 - **Техническое задание:** [ТЗ.md](ТЗ.md) — главный документ, читать первым.
 - **Что сделано / как проверить:** [CHANGELOG.md](CHANGELOG.md)
 - **Промпты по этапам для облачных сессий:** [docs/prompts/](docs/prompts/)
@@ -14,9 +15,11 @@
 
 - Игра (для OBS Browser Source 1920×1080): `http://127.0.0.1:8091/`
 - Панель стримера: `http://127.0.0.1:8091/control`
-- Прозрачный оверлей: `http://127.0.0.1:8091/overlay`
+- Прозрачный оверлей (второй Browser Source, лидерборд и лента): `http://127.0.0.1:8091/overlay`
 
-TikTok Bridge должен быть запущен отдельно (приложение «TikTok Bridge» на рабочем столе).
+TikTok Bridge должен быть запущен отдельно (приложение «TikTok Bridge» на рабочем столе). Подробно, по шагам — в [docs/СТРИМ.md](docs/СТРИМ.md).
+
+Что умеет игра: 5 трасс (порт, ночной город, каньон, горный серпантин, зимний лес) днём и ночью, 16 машин, зрители попадают в заезд сообщением в чат и выбирают машину («машина 7»), подарки TikTok включают нитро, ракеты, мины, щиты и другие эффекты, лайки копят общий нитро, HP и взрывы, режимы «Гонка» и «Выживание», лидерборд сессии, церемония победителя, звук и музыка.
 
 ## Для разработки
 
@@ -31,10 +34,11 @@ npm run check        # всё: tsc + eslint + vitest + сборка + playwright
 npm run check:ci     # то же без браузерных тестов (так проверяет GitHub Actions)
 npm test             # только unit-тесты (Vitest)
 npm run e2e          # только браузерные тесты (Playwright, headless Chromium + SwiftShader)
+node scripts/stress-4h.mjs --minutes 240 --port 8092   # стресс-тест 4 часа (нужен собранный dist/)
 ```
 
-Полезные параметры адреса игры: `?seed=42` — повторяемый заезд, `?quality=high|medium|broadcast` — качество, `?bridge=off` — не подключаться к Bridge.
+Полезные параметры адреса игры: `?seed=42` — повторяемый заезд, `?quality=high|medium|broadcast` — качество, `?bridge=off` — не подключаться к Bridge, `?track=city&light=city-night` — трасса и освещение, `?car=supercar` — все машины одной модели, `?mute` — без звука, `?fresh` — без сохранённых настроек. Оверлей: `?only=board` или `?only=feed`.
 
-Структура кода — раздел 4 ТЗ: `src/core` (цикл, шаг 60 Гц, seed-рандом, шина событий, связь страниц), `src/physics` (Rapier, машина), `src/tracks` (сплайн трассы, JSON трасс), `src/vehicles` (JSON машин), `src/ai`, `src/render`, `src/hud`, `src/control`, `src/overlay`, остальное — по этапам.
+Структура кода — раздел 4 ТЗ: `src/core` (цикл, шаг 60 Гц, seed-рандом, шина событий, связь страниц), `src/physics` (Rapier, машина), `src/tracks` (сплайн трассы, JSON трасс), `src/vehicles` (JSON машин), `src/ai`, `src/render`, `src/hud`, `src/control`, `src/overlay`, `src/race` (сессия, очки, выбор машины), `src/bridge` (TikTok Bridge и мок-зрители), `src/gifts`, `src/combat`, `src/audio`.
 
 Свежая сборка с ветки `main` автоматически публикуется на GitHub Pages: https://taec432-maker.github.io/gonki-na-vyzhivanie/ (панель — `/gonki-na-vyzhivanie/control/`). Это для просмотра; эфир идёт с локального запуска, потому что Bridge живёт на `127.0.0.1`.
