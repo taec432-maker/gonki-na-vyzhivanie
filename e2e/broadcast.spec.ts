@@ -86,10 +86,18 @@ test('оверлей: прозрачный, лидерборд и лента и�
   const bg = await overlay.evaluate(() => getComputedStyle(document.body).backgroundColor);
   expect(bg).toBe('rgba(0, 0, 0, 0)');
   // Как в OBS: оверлей поверх кадра игры (снимок игры + прозрачный оверлей сверху).
-  await page.evaluate(() => (window as unknown as { __game: GameHandle }).__game.advanceUntil('race', 120));
+  // Середина гонки и свежий подарок — чтобы на снимке были и лидерборд, и лента.
+  await page.evaluate(async () => {
+    const g = (window as unknown as { __game: GameHandle }).__game;
+    await g.advanceUntil('race', 120);
+    g.advance(900);
+    g.mockGift(null, 100, 1);
+  });
   await waitFrames(page, 4);
-  const game = (await page.screenshot({ type: 'png', timeout: 180_000 })).toString('base64');
+  await expect(overlay.locator('.ov-card').first()).toBeVisible();
+  // Сначала оверлей: снимок игры на программном GPU долгий, а лента держит событие 20 с.
   const over = (await overlay.screenshot({ type: 'png', omitBackground: true })).toString('base64');
+  const game = (await page.screenshot({ type: 'png', timeout: 180_000 })).toString('base64');
   const data = await overlay.evaluate(
     async ({ game, over }) => {
       const c = document.createElement('canvas');
@@ -140,6 +148,9 @@ test('панель: звук, настройки файлом туда и обр
     buffer: Buffer.from('{"a":1}'),
   });
   await expect(panel.locator('#settings-msg')).toContainText('не файл настроек');
+  // Вкладка игры в фоне «засыпает» (как любая фоновая вкладка) — для снимка выводим её вперёд.
+  await page.bringToFront();
+  await expect(panel.locator('#link')).toHaveText('Игра на связи');
   await panel.screenshot({
     path: `${shotDir()}/3-панель-звук-и-настройки.jpg`,
     type: 'jpeg',

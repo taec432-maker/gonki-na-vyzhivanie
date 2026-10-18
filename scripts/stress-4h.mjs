@@ -5,7 +5,7 @@
 // Замеры — каждые 10 минут (--sample), чтобы видеть тренд, а не отдельные точки.
 //
 // Запуск (нужен собранный dist и свободный порт):
-//   node scripts/stress-4h.mjs --minutes 240 --port 8092 --out test-results/stress
+//   node scripts/stress-4h.mjs --minutes 240 --port 8092 --out stress-results
 // Итог: <out>/report.json и <out>/report.md (таблица для CHANGELOG).
 import { spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync, createWriteStream } from 'node:fs';
@@ -22,7 +22,7 @@ const args = Object.fromEntries(
 );
 const minutes = Number(args.minutes ?? 240);
 const port = Number(args.port ?? 8092);
-const out = args.out ?? 'test-results/stress';
+const out = args.out ?? 'stress-results';
 const sampleEvery = Number(args.sample ?? 10) * 60_000;
 mkdirSync(out, { recursive: true });
 
