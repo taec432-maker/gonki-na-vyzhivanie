@@ -16,6 +16,7 @@ import { TrackFxView } from './render/trackFx';
 import { Aurora } from './render/aurora';
 import { Ceremony } from './render/ceremony';
 import { makeWet } from './render/wet';
+import { disposeObject } from './render/dispose';
 import { BridgeIndicator, EventFeed, LikeBar } from './hud/feed';
 import { readableColor } from './hud/nameTags';
 import type { BridgeEnvelope } from './bridge/protocol';
@@ -273,7 +274,10 @@ export class Game {
       this.trackFx?.bind(sim, this.session.night);
       this.bindSimEvents(sim);
       this.wheelFx?.setTrack(sim.track);
-      for (const m of this.debrisMeshes.values()) this.renderer.scene.remove(m);
+      for (const m of this.debrisMeshes.values()) {
+        this.renderer.scene.remove(m);
+        m.geometry.dispose();
+      }
       this.debrisMeshes.clear();
       sim.events.on('part', ({ car, debris }) => {
         const mesh = this.views.get(car.id)?.detachPart(debris.part);
@@ -401,7 +405,13 @@ export class Game {
 
   private async ensureTrack(def: TrackDef): Promise<void> {
     if (this.trackVisual?.key === this.trackKey(def)) return;
-    if (this.trackVisual) this.renderer.scene.remove(this.trackVisual.visual.group, this.trackVisual.props);
+    if (this.trackVisual) {
+      this.renderer.scene.remove(this.trackVisual.visual.group, this.trackVisual.props);
+      // Старая трасса больше не нужна — освободить видеокарту (иначе за часы эфира копится).
+      disposeObject(this.trackVisual.visual.group);
+      disposeObject(this.trackVisual.props);
+      this.trackVisual = null;
+    }
     const preset = this.presetFor(def);
     await this.renderer.applyPreset(preset);
     const visual = buildTrackVisual(this.sim.track);

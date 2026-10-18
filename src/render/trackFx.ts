@@ -1,3 +1,4 @@
+import { disposeObject } from './dispose';
 import {
   AdditiveBlending,
   BoxGeometry,
@@ -325,8 +326,7 @@ export class TrackFxView {
   private clear(): void {
     for (const o of [...this.group.children]) {
       this.group.remove(o);
-      const m = o as Mesh;
-      m.geometry?.dispose();
+      disposeObject(o);
     }
     for (const m of this.mats) m.dispose();
     this.mats.length = 0;
