@@ -1,7 +1,7 @@
 {
   "id": "port",
   "name": "Порт",
-  "description": "Промзона у причала: контейнеры, краны, эстакада над складами",
+  "description": "Промзона у причала: контейнеры, краны, эстакада, шорткат через склад",
   "points": [
     [0, 0, 300],
     [0, 0, 120],
@@ -132,28 +132,6 @@
       "rot": 0
     },
     {
-      "type": "barrel",
-      "span": {
-        "from": 0.3,
-        "to": 0.36
-      },
-      "side": 1,
-      "every": 5,
-      "d": 1,
-      "jitter": 2
-    },
-    {
-      "type": "barrel",
-      "span": {
-        "from": 0.62,
-        "to": 0.66
-      },
-      "side": -1,
-      "every": 4,
-      "d": 1.2,
-      "jitter": 2
-    },
-    {
       "type": "block",
       "span": {
         "from": 0.27,
@@ -162,6 +140,11 @@
       "side": -1,
       "every": 6,
       "d": 0.6
+    },
+    {
+      "type": "shed",
+      "at": 0.77,
+      "d": -26
     }
   ],
   "ground": "concrete",
@@ -170,6 +153,63 @@
       "type": "water",
       "rect": [-700, -420, -40, 560],
       "y": -0.03
+    }
+  ],
+  "shortcuts": [
+    {
+      "from": 0.712,
+      "to": 0.828,
+      "side": -1,
+      "offset": 24,
+      "width": 11,
+      "surface": "metal",
+      "chance": 0.45
+    }
+  ],
+  "breakables": [
+    {
+      "type": "barrel",
+      "at": 0.305,
+      "d": 9.3,
+      "count": 6,
+      "spacing": 2.2,
+      "stagger": 0.7
+    },
+    {
+      "type": "barrel",
+      "at": 0.62,
+      "d": -9.3,
+      "count": 5,
+      "spacing": 2.4,
+      "stagger": 0.7
+    },
+    {
+      "type": "cone",
+      "at": 0.44,
+      "d": -8.8,
+      "count": 8,
+      "spacing": 3
+    },
+    {
+      "type": "billboard",
+      "at": 0.12,
+      "d": 10.2,
+      "count": 1,
+      "rot": 0.25
+    },
+    {
+      "type": "billboard",
+      "at": 0.95,
+      "d": -10.2,
+      "count": 1,
+      "rot": -0.25
+    },
+    {
+      "type": "crate",
+      "at": 0.765,
+      "d": -23.5,
+      "count": 3,
+      "spacing": 3.5
     }
   ]
 }

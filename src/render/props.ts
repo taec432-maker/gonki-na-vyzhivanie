@@ -1,9 +1,16 @@
-import type { BufferGeometry, Vector3 } from 'three';
+import type { BufferGeometry } from 'three';
 import {
   BoxGeometry,
+  AdditiveBlending,
   CanvasTexture,
   Color,
+  ConeGeometry,
   CylinderGeometry,
+  Float32BufferAttribute,
+  IcosahedronGeometry,
+  MeshBasicMaterial,
+  SRGBColorSpace,
+  Vector3,
   Group,
   InstancedMesh,
   Mesh,
@@ -62,6 +69,117 @@ function corrugatedNormal(): CanvasTexture {
 }
 
 let kinds: Record<string, PropKind> | null = null;
+
+/** Окна домов: днём — тёмные стёкла, ночью часть горит (emissiveMap). */
+function windowsTexture(): { map: CanvasTexture; emissive: CanvasTexture } {
+  const W = 256;
+  const H = 256;
+  const make = (lit: boolean): CanvasTexture => {
+    const c = document.createElement('canvas');
+    c.width = W;
+    c.height = H;
+    const ctx = c.getContext('2d') as CanvasRenderingContext2D;
+    ctx.fillStyle = lit ? '#000' : '#d8d4cc';
+    ctx.fillRect(0, 0, W, H);
+    let seed = 13;
+    const rnd = (): number => {
+      seed = (seed * 16807) % 2147483647;
+      return seed / 2147483647;
+    };
+    for (let y = 0; y < 4; y++)
+      for (let x = 0; x < 6; x++) {
+        const on = rnd() < 0.45;
+        if (lit)
+          ctx.fillStyle = on ? `rgb(255,${200 + Math.floor(rnd() * 40)},${130 + Math.floor(rnd() * 60)})` : '#000';
+        else ctx.fillStyle = rnd() < 0.5 ? '#2b3440' : '#3a4654';
+        ctx.fillRect(8 + x * 41, 10 + y * 62, 28, 40);
+      }
+    const t = new CanvasTexture(c);
+    t.colorSpace = SRGBColorSpace;
+    return t;
+  };
+  return { map: make(false), emissive: make(true) };
+}
+
+/** Камень: икосаэдр с детерминированными вмятинами. */
+function rockGeometry(r: number, seed: number): BufferGeometry {
+  const g = new IcosahedronGeometry(r, 1);
+  const pos = g.getAttribute('position');
+  let s = seed;
+  const rnd = (): number => {
+    s = (s * 16807) % 2147483647;
+    return s / 2147483647;
+  };
+  const v = new Vector3();
+  const bumps = new Map<string, number>();
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    const key = `${v.x.toFixed(3)},${v.y.toFixed(3)},${v.z.toFixed(3)}`;
+    let k = bumps.get(key);
+    if (k === undefined) {
+      k = 0.75 + rnd() * 0.45;
+      bumps.set(key, k);
+    }
+    v.multiplyScalar(k);
+    v.y = v.y * 0.7;
+    pos.setXYZ(i, v.x, v.y, v.z);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
+function cactusGeometry(): BufferGeometry {
+  const parts: BufferGeometry[] = [];
+  const trunk = new CylinderGeometry(0.32, 0.38, 4.5, 10);
+  trunk.translate(0, 2.25, 0);
+  parts.push(trunk.toNonIndexed());
+  for (const [x, y, h] of [
+    [0.9, 2.2, 1.6],
+    [-0.8, 2.8, 1.3],
+  ] as const) {
+    const arm = new CylinderGeometry(0.22, 0.24, h, 8);
+    arm.translate(x, y + h / 2, 0);
+    parts.push(arm.toNonIndexed());
+    const link = new CylinderGeometry(0.2, 0.2, Math.abs(x), 8);
+    link.rotateZ(Math.PI / 2);
+    link.translate(x / 2, y, 0);
+    parts.push(link.toNonIndexed());
+  }
+  const g = mergeGeometries(parts);
+  if (!g) throw new Error('кактус');
+  return g;
+}
+
+/** Ель: ствол и ярусы-конусы; цвет — в вершинах (снег на верхних гранях у снежной). */
+function pineGeometry(snow: boolean): BufferGeometry {
+  const parts: BufferGeometry[] = [];
+  const paint = (g: BufferGeometry, hex: string, snowTop: boolean): BufferGeometry => {
+    const n = g.index ? g.toNonIndexed() : g;
+    n.computeVertexNormals();
+    const c = new Color(hex);
+    const w = new Color('#eef3f8');
+    const nor = n.getAttribute('normal');
+    const arr = new Float32Array(nor.count * 3);
+    for (let i = 0; i < nor.count; i++) {
+      const col = snowTop && nor.getY(i) > 0.45 ? w : c;
+      arr.set([col.r, col.g, col.b], i * 3);
+    }
+    n.setAttribute('color', new Float32BufferAttribute(arr, 3));
+    return n;
+  };
+  const trunk = new CylinderGeometry(0.22, 0.32, 3, 7);
+  trunk.translate(0, 1.5, 0);
+  parts.push(paint(trunk, '#4a3526', false));
+  for (let i = 0; i < 4; i++) {
+    const r = 2.6 - i * 0.55;
+    const cone = new ConeGeometry(r, 3.2, 9);
+    cone.translate(0, 3.2 + i * 2.1, 0);
+    parts.push(paint(cone, i % 2 ? '#24452c' : '#2b5234', snow));
+  }
+  const g = mergeGeometries(parts);
+  if (!g) throw new Error('ель');
+  return g;
+}
 
 function buildKinds(): Record<string, PropKind> {
   const corrN = corrugatedNormal();
@@ -129,7 +247,79 @@ function buildKinds(): Record<string, PropKind> {
   const block = new BoxGeometry(4, 1.2, 1.2);
   const blockMat = new MeshStandardMaterial({ map: concrete.map, normalMap: concrete.normalMap, roughness: 0.9 });
 
+  // Навес склада над шорткатом «Порта»: крыша на столбах, торцы открыты.
+  const sh: BufferGeometry[] = [];
+  sh.push(box(18, 0.6, 36, 0, 7.2, 0));
+  for (const x of [-8.6, 8.6]) for (const z of [-17, -8.5, 0, 8.5, 17]) sh.push(box(0.6, 7, 0.6, x, 3.5, z));
+  for (const x of [-8.9, 8.9]) sh.push(box(0.2, 3.6, 36, x, 5.4, 0));
+  const shed = mergeGeometries(sh);
+  if (!shed) throw new Error('навес');
+
+  // Дом: этаж-блок 18 × 12 × 18 с окнами (ночью окна светятся — emissiveMap).
+  const building = new BoxGeometry(18, 12, 18);
+  const win = windowsTexture();
+  const buildingMat = new MeshStandardMaterial({
+    color: '#ffffff',
+    map: win.map,
+    emissiveMap: win.emissive,
+    emissive: '#ffd9a0',
+    emissiveIntensity: 0,
+    roughness: 0.75,
+    metalness: 0.2,
+  });
+
+  // Неоновая вывеска: светится сама (цвет — instanceColor, яркость > 1 для bloom).
+  const neon = new BoxGeometry(6, 1.6, 0.3);
+  const neonMat = new MeshBasicMaterial({ color: new Color(3.2, 3.2, 3.2), toneMapped: true });
+
+  const rock = rockGeometry(1, 7);
+  const rockMat = new MeshStandardMaterial({ color: '#ffffff', roughness: 0.95, flatShading: true });
+
+  const cactus = cactusGeometry();
+  const cactusMat = new MeshStandardMaterial({ color: '#4f7d3a', roughness: 0.8 });
+
+  const pine = pineGeometry(false);
+  const snowPine = pineGeometry(true);
+  const pineMat = new MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
+
   return {
+    shed: { geometry: shed, material: warehouseMat, baseY: 0, clearance: 0, castShadow: true },
+    building: {
+      geometry: building,
+      material: buildingMat,
+      colors: ['#8a8f99', '#6f6a66', '#9c8f7e', '#596270', '#7c7470', '#a59a8c'],
+      baseY: 6,
+      clearance: 10,
+      castShadow: true,
+      stackHeight: 12,
+    },
+    neon: {
+      geometry: neon,
+      material: neonMat,
+      colors: ['#ff2e9a', '#2ee6ff', '#b14bff', '#ffe02e', '#2eff8a', '#ff5a2e'],
+      baseY: 5,
+      clearance: 1,
+      castShadow: false,
+    },
+    rock: {
+      geometry: rock,
+      material: rockMat,
+      colors: ['#a0714a', '#8c5f3d', '#b4865c', '#7d6650'],
+      baseY: 0.2,
+      clearance: 4,
+      castShadow: true,
+    },
+    greyrock: {
+      geometry: rock,
+      material: rockMat,
+      colors: ['#7b7a76', '#6a6966', '#8c8a84', '#5e5d5a'],
+      baseY: 0.2,
+      clearance: 4,
+      castShadow: true,
+    },
+    cactus: { geometry: cactus, material: cactusMat, baseY: 0, clearance: 1.5, castShadow: true },
+    pine: { geometry: pine, material: pineMat, baseY: 0, clearance: 3, castShadow: true },
+    snowpine: { geometry: snowPine, material: pineMat, baseY: 0, clearance: 3, castShadow: true },
     container: {
       geometry: container,
       material: containerMat,
@@ -155,6 +345,46 @@ function buildKinds(): Record<string, PropKind> {
   };
 }
 
+/** Пятна света от фонарей на асфальте (ночью): аддитивные круги, один draw call. */
+function lightPools(lamps: readonly Placement[]): InstancedMesh {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const ctx = c.getContext('2d') as CanvasRenderingContext2D;
+  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  g.addColorStop(0, 'rgba(255,214,150,0.85)');
+  g.addColorStop(0.5, 'rgba(255,190,120,0.3)');
+  g.addColorStop(1, 'rgba(255,180,110,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 128, 128);
+  const tex = new CanvasTexture(c);
+  const geo = new PlaneGeometry(14, 14);
+  geo.rotateX(-Math.PI / 2);
+  const mat = new MeshBasicMaterial({
+    map: tex,
+    transparent: true,
+    depthWrite: false,
+    blending: AdditiveBlending,
+    polygonOffset: true,
+    polygonOffsetFactor: -4,
+  });
+  const mesh = new InstancedMesh(geo, mat, Math.max(1, lamps.length));
+  const d = new Object3D();
+  lamps.forEach((p, i) => {
+    // Светильник на консоли — в 2,2 м от столба (как в геометрии фонаря).
+    d.position.set(
+      p.pos.x + Math.sin(p.rot) * 2.2 * p.scale,
+      p.pos.y + 0.06,
+      p.pos.z - Math.cos(p.rot) * 2.2 * p.scale,
+    );
+    d.updateMatrix();
+    mesh.setMatrixAt(i, d.matrix);
+  });
+  mesh.count = lamps.length;
+  mesh.renderOrder = 1;
+  mesh.name = 'light-pools';
+  return mesh;
+}
+
 /** Детерминированная раскладка пропов по описанию трассы. */
 export function placeProps(track: Track, defs: readonly PropDef[], clearanceOf: (type: string) => number): Placement[] {
   const rng = track.rng.fork('props');
@@ -164,7 +394,13 @@ export function placeProps(track: Track, defs: readonly PropDef[], clearanceOf: 
   /** Не ставим на дорогу (в том числе на другой её участок). */
   const free = (p: Vector3, clearance: number): boolean => {
     const pr = path.project(p.x, p.y, p.z);
-    return Math.abs(pr.d) > wallOff(pr.s) + clearance - 0.01;
+    if (Math.abs(pr.d) <= wallOff(pr.s) + clearance - 0.01) return false;
+    // И не на шорткате.
+    for (const sc of track.shortcuts) {
+      const dc = track.shortcutD(sc, pr.s);
+      if (dc !== null && Math.abs(pr.d - dc) < sc.width / 2 + track.def.walls.offset + clearance) return false;
+    }
+    return true;
   };
   for (const def of defs) {
     const jitter = def.jitter ?? 0;
@@ -224,12 +460,17 @@ export interface PropsVisual {
 }
 
 /** Все пропы трассы — один InstancedMesh на тип (единицы draw calls). */
-export function buildProps(track: Track): PropsVisual {
+export function buildProps(track: Track, night = false): PropsVisual {
   kinds ??= buildKinds();
   const K = kinds;
   const group = new Group();
   group.name = 'props';
   const placements = placeProps(track, track.def.props ?? [], (t) => K[t]?.clearance ?? 2);
+  // Ночью горят фонари и окна домов.
+  const lampMat = K.lamp?.material as MeshStandardMaterial;
+  lampMat.emissive.set(night ? '#ffd29a' : '#000000');
+  lampMat.emissiveIntensity = night ? 2.5 : 0;
+  (K.building?.material as MeshStandardMaterial).emissiveIntensity = night ? 1.6 : 0;
   const byType = new Map<string, Placement[]>();
   for (const p of placements) {
     const list = byType.get(p.type) ?? [];
@@ -291,5 +532,6 @@ export function buildProps(track: Track): PropsVisual {
     m.receiveShadow = true;
     group.add(m);
   }
-  return { group, placements, lampMaterial: K.lamp?.material as MeshStandardMaterial };
+  if (night) group.add(lightPools(placements.filter((p) => p.type === 'lamp')));
+  return { group, placements, lampMaterial: lampMat };
 }

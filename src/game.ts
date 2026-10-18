@@ -12,6 +12,7 @@ import { EffectsRenderer } from './render/fx';
 import { preloadCarModels } from './render/glbCar';
 import { Weather, type WeatherKind } from './render/weather';
 import { WheelFx } from './render/wheelFx';
+import { TrackFxView } from './render/trackFx';
 import { makeWet } from './render/wet';
 import { BridgeIndicator, EventFeed, LikeBar } from './hud/feed';
 import { readableColor } from './hud/nameTags';
@@ -29,7 +30,7 @@ import { LobbyScreen } from './hud/lobby';
 import { NameTags } from './hud/nameTags';
 import { RaceHud } from './hud/raceHud';
 import { FrameStatsMeter } from './hud/stats';
-import { trackById } from './tracks';
+import { TRACKS, trackById } from './tracks';
 import type { TrackDef } from './tracks/types';
 import { VEHICLES } from './vehicles';
 import type { Group, Mesh } from 'three';
@@ -91,6 +92,8 @@ export class Game {
   readonly director = new CameraDirector();
   readonly normalizer = new EventNormalizer();
   readonly mock: MockViewers;
+  /** Ростер машин (для панели, витрин и тестов). */
+  readonly vehicles = VEHICLES;
   settings: GameSettings;
   private views = new Map<number, CarView>();
   private wheels!: WheelRenderer;
@@ -100,6 +103,7 @@ export class Game {
   fx!: EffectsRenderer;
   private weather!: Weather;
   private wheelFx!: WheelFx;
+  private trackFx!: TrackFxView;
   private lastShot = '';
   private lastTarget = -1;
   feed!: EventFeed;
@@ -109,7 +113,7 @@ export class Game {
   readonly sfx = new Sfx();
   /** Обломки кузова на сцене: id обломка → меш. */
   private readonly debrisMeshes = new Map<number, Mesh>();
-  private trackVisual: { id: string; visual: TrackVisual; props: Group } | null = null;
+  private trackVisual: { key: string; visual: TrackVisual; props: Group } | null = null;
   private loadingTrack: Promise<void> | null = null;
   private last = 0;
   private lastStats: FrameStats = { drawCalls: 0, triangles: 0, textures: 0, geometries: 0 };
@@ -154,8 +158,6 @@ export class Game {
     return this.session.sim;
   }
 
-  private trackFor = (_raceIndex: number): TrackDef => trackById(this.params.track ?? 'port');
-
   async start(onProgress: (k: number, label: string) => void): Promise<void> {
     onProgress(0.1, 'Физика');
     const hudRoot = document.getElementById('hud') as HTMLElement;
@@ -170,12 +172,15 @@ export class Game {
     this.fx.setDensity(this.renderer.quality.particles);
     this.weather = new Weather(this.renderer.scene);
     this.wheelFx = new WheelFx(this.renderer.scene, this.fx.smoke);
+    this.trackFx = new TrackFxView(this.renderer.scene);
     onProgress(0.2, 'Машины');
     await preloadCarModels(VEHICLES, import.meta.env.BASE_URL);
     this.session = await Session.create({
       seed: this.params.seed,
       settings: this.settings.session,
-      trackFor: this.trackFor,
+      tracks: TRACKS,
+      // ?track= в адресе — всегда эта трасса (просмотр, тесты).
+      trackFor: this.params.track ? () => trackById(this.params.track as string) : undefined,
       vehiclesFor: () => {
         const only = VEHICLES.filter((v) => v.id === this.params.car);
         return only.length ? only : VEHICLES;
@@ -186,6 +191,8 @@ export class Game {
     this.nameTags.showHp = true;
     this.bindSession();
     this.fx.bind(this.sim);
+    this.trackFx.bind(this.sim, this.session.night);
+    this.bindSimEvents(this.sim);
     this.startBridge();
     onProgress(0.3, 'Трасса и освещение');
     await this.ensureTrack(this.sim.track.def);
@@ -196,11 +203,27 @@ export class Game {
     requestAnimationFrame(this.frame);
   }
 
+  /** События трассы: телепорт (вспышка и звук), сбитое препятствие (искры и стук). */
+  private bindSimEvents(sim: Simulation): void {
+    sim.events.on('portal', ({ car, from, to }) => {
+      this.sfx.portal();
+      this.fx.sparks(from, 6);
+      this.fx.highlightCar(car, '#c58bff', 1.2);
+      this.director.hotspot(car.id, to, 2);
+    });
+    sim.events.on('prop-hit', ({ pos }) => {
+      this.sfx.thump();
+      this.fx.sparks(pos, 3);
+    });
+  }
+
   private bindSession(): void {
     const ev = this.session.events;
     ev.on('race-created', ({ sim }) => {
       this.director.reset();
       this.fx?.bind(sim);
+      this.trackFx?.bind(sim, this.session.night);
+      this.bindSimEvents(sim);
       this.wheelFx?.setTrack(sim.track);
       for (const m of this.debrisMeshes.values()) this.renderer.scene.remove(m);
       this.debrisMeshes.clear();
@@ -228,7 +251,7 @@ export class Game {
         this.feed.push({ name: car.name, what: 'выбыл из гонки', icon: null, emoji: '💀', effect: null, test: false }),
       );
       sim.events.on('finish', (e) => this.director.hotspot(e.car.id, e.car.cur.p, 2.5));
-      if (this.trackVisual?.id !== sim.track.def.id) this.loadingTrack = this.ensureTrack(sim.track.def);
+      if (this.trackVisual?.key !== this.trackKey(sim.track.def)) this.loadingTrack = this.ensureTrack(sim.track.def);
     });
     ev.on('gift', ({ ev: g, resolved, outcome, carId }) => {
       const car = carId !== null ? this.sim.carById(carId) : undefined;
@@ -302,14 +325,19 @@ export class Game {
     for (const c of this.sim.cars) if (!this.views.has(c.id)) this.views.set(c.id, new CarView(this.renderer.scene, c));
   }
 
+  /** Трасса + время суток: смена любого — пересборка декора и света. */
+  private trackKey(def: TrackDef): string {
+    return `${def.id}|${this.session.night ? 'night' : 'day'}`;
+  }
+
   private async ensureTrack(def: TrackDef): Promise<void> {
-    if (this.trackVisual?.id === def.id) return;
+    if (this.trackVisual?.key === this.trackKey(def)) return;
     if (this.trackVisual) this.renderer.scene.remove(this.trackVisual.visual.group, this.trackVisual.props);
     const preset = this.presetFor(def);
     await this.renderer.applyPreset(preset);
     const visual = buildTrackVisual(this.sim.track);
     if (preset.wet > 0) for (const m of visual.wetMaterials) makeWet(m, preset.wet);
-    const props = buildProps(this.sim.track);
+    const props = buildProps(this.sim.track, preset.night);
     const w = this.params.weather;
     const kind: WeatherKind = w === 'rain' || w === 'snow' || w === 'dust' || w === 'none' ? w : preset.weather;
     this.weather.set(kind, this.renderer.quality.particles);
@@ -317,7 +345,7 @@ export class Game {
     this.wheelFx.wet = preset.wet > 0;
     this.fx.smoke.setLight(preset.smokeLight);
     this.renderer.scene.add(visual.group, props.group);
-    this.trackVisual = { id: def.id, visual, props: props.group };
+    this.trackVisual = { key: this.trackKey(def), visual, props: props.group };
     this.director.chase.occluders = [props.group];
     this.loadingTrack = null;
   }
@@ -325,7 +353,8 @@ export class Game {
   /** Освещение трассы; ?light= в адресе — посмотреть трассу в другом пресете. */
   private presetFor(def: TrackDef): LightingPreset {
     const id = this.params.light;
-    return id && PRESETS[id] ? (PRESETS[id] as LightingPreset) : presetById(def.lighting);
+    if (id && PRESETS[id]) return PRESETS[id] as LightingPreset;
+    return presetById(this.session.night && def.lightingNight ? def.lightingNight : def.lighting);
   }
 
   /** Сообщение в формате Bridge (настоящее или мок) → разбор → сессия. Один путь для всех. */
@@ -631,6 +660,7 @@ export class Game {
       const camPos = this.renderer.camera.position;
       for (const v of this.views.values()) v.setNear(v.pos.distanceToSquared(camPos) < 45 * 45);
       this.wheelFx.update(dt, this.views);
+      this.trackFx.update(dt, this.views);
       this.weather.update(dt, this.renderer.camera);
       if (this.fx.shake > 0 && this.director.shot !== 'overview') {
         const k = this.fx.shake * this.fx.shake * 0.35;

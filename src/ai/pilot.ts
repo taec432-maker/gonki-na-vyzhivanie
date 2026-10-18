@@ -57,6 +57,23 @@ export interface Hazard {
 }
 
 /**
+ * Приманка (вход телепорта, шорткат): часть ботов на этом участке целится в неё.
+ * Решение — один бросок на круг: заехать или нет.
+ */
+export interface Lure {
+  id: number;
+  s: number;
+  d: number;
+  /** Вероятность, что бот поедет сюда (на каждом круге заново). */
+  chance: number;
+  /** Участок, где бот держит это смещение. */
+  fromS: number;
+  toS: number;
+  /** Смещение как функция s (шорткат уходит в сторону плавно); иначе — постоянное d. */
+  offsetAt?: (s: number) => number;
+}
+
+/**
  * ИИ-пилот: едет по гоночной линии со своим смещением, обгоняет,
  * объезжает препятствия, выбирается из завалов (анти-застревание).
  */
@@ -98,6 +115,7 @@ export class AiPilot {
     speedAt: (s: number) => number,
     neighbors: readonly Neighbor[],
     hazards: readonly Hazard[],
+    lures: readonly Lure[] = [],
   ): 'respawn' | null {
     const path = track.path;
     const half = path.widthAt(me.s) / 2;
@@ -211,10 +229,27 @@ export class AiPilot {
       }
     }
 
+    // --- Приманки: телепорт или шорткат — решаем раз за круг.
+    let lure: Lure | null = null;
+    const lap = Math.floor(me.progress / Math.max(1, track.length));
+    for (const l of lures) {
+      if (path.deltaS(l.fromS, me.s) < 0 || path.deltaS(me.s, l.toS) < 0) continue;
+      const key = l.id * 64 + (lap & 63);
+      let take = this.hazardSeen.get(-key);
+      if (take === undefined) {
+        take = this.rng.chance(l.chance);
+        this.hazardSeen.set(-key, take);
+      }
+      if (take) lure = l;
+    }
+
     const lim = half - 1.3;
     const offsetAt = (s: number): number => {
+      // Шорткат уводит за пределы дороги — без ограничения шириной.
+      if (lure?.offsetAt && path.deltaS(lure.fromS, s) >= 0 && path.deltaS(s, lure.toS) >= 0) return lure.offsetAt(s);
       let base: number;
-      if (tick < this.dodgeUntil) base = this.dodgeOffset;
+      if (lure && !lure.offsetAt) base = lure.d;
+      else if (tick < this.dodgeUntil) base = this.dodgeOffset;
       else if (ramD !== null) base = ramD;
       else base = plannedAt(s);
       return Math.max(-lim, Math.min(lim, base + sideShift));

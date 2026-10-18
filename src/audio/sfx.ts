@@ -46,6 +46,14 @@ export class Sfx {
     this.tone(220, 0.4, 'sawtooth', 0.12, 2.5);
   }
 
+  portal(): void {
+    this.tone(300, 0.35, 'sine', 0.2, 4);
+  }
+
+  thump(): void {
+    this.tone(90, 0.15, 'square', 0.12, 0.5);
+  }
+
   boom(): void {
     this.tone(120, 0.5, 'square', 0.18, 0.25);
   }

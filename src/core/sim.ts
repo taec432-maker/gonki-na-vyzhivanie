@@ -10,6 +10,7 @@ import { buildTrackColliders, floorHeight, type TrackColliders } from '../physic
 import { PhysVehicle, type Controls } from '../physics/vehicle';
 import { RAPIER as R, DEBRIS_GROUPS, createWorld, initPhysics } from '../physics/world';
 import { RaceTracker, type RacerProgress } from '../race/progress';
+import { TrackFeatures } from './features';
 import { Track, headingOf } from '../tracks/track';
 import { SURFACES, type TrackDef } from '../tracks/types';
 import type { VehicleSpec } from '../vehicles/types';
@@ -121,6 +122,10 @@ export interface SimEvents {
   swap: { car: SimCar };
   /** Столкновение с уроном (для искр и камеры). */
   crash: { car: SimCar; other: SimCar | null; amount: number; pos: Vector3 };
+  /** Проезд через телепорт трассы. */
+  portal: { car: SimCar; from: Vector3; to: Vector3 };
+  /** Сбито препятствие (бочка, конус, щит). */
+  'prop-hit': { car: SimCar; pos: Vector3; type: string };
 }
 
 export interface RaceConfig {
@@ -163,6 +168,8 @@ export class Simulation {
   readonly racingLine: Float32Array;
   private readonly speedProfile: Float32Array;
   readonly hazards: Hazard[] = [];
+  /** Телепорты, ускорители, разрушаемые препятствия трассы. */
+  readonly features: TrackFeatures;
   readonly combat: Combat;
   readonly debris: Debris[] = [];
   /** Пул машин для эффекта «Смена машины». */
@@ -187,6 +194,7 @@ export class Simulation {
     this.world = createWorld();
     this.track = new Track(config.track);
     this.colliders = buildTrackColliders(this.world, this.track);
+    this.features = new TrackFeatures(this.world, this.track);
     this.tracker = new RaceTracker(this.track, config.laps);
     this.racingLine = computeRacingLine(this.track);
     this.speedProfile = buildSpeedProfile(this.track.path, this.racingLine, 9.5, 7.5, 90);
@@ -334,9 +342,14 @@ export class Simulation {
     const path = this.track.path;
     const grip = car.spec.grip * car.phys.gripMul;
     const vmax = car.phys.vmax * car.phys.maxSpeedMul;
+    const half = path.widthAt(car.s) / 2;
     return (s: number) => {
       const surf = SURFACES[this.track.surfaceAt(s, car.d)].grip;
-      return Math.min(vmax, (this.speedProfile[path.indexAt(s)] as number) * Math.sqrt(grip * surf));
+      let v = Math.min(vmax, (this.speedProfile[path.indexAt(s)] as number) * Math.sqrt(grip * surf));
+      // Шорткат: извилистый въезд и выезд — не быстрее 17 м/с, если машина уже уходит в его сторону.
+      for (const sc of this.track.shortcuts)
+        if (this.track.shortcutD(sc, s) !== null && car.d * sc.side > half * 0.4) v = Math.min(v, 17);
+      return v;
     };
   }
 
@@ -398,6 +411,16 @@ export class Simulation {
     }
     const car = a ?? b;
     const other = a ? h2 : h1;
+    const prop = car ? this.features.breakableOf(other) : undefined;
+    if (car && prop) {
+      // Сбил препятствие: немного урона, если на скорости и оно ещё стояло.
+      if (!prop.knocked && Math.hypot(car.vel.x, car.vel.z) > 8) {
+        this.combat.damage(car, 2, 'prop');
+        const t = prop.body.translation();
+        this.events.emit('prop-hit', { car, pos: new Vector3(t.x, t.y, t.z), type: prop.type });
+      }
+      return;
+    }
     if (car && this.colliders.wallHandles.has(other)) {
       // Скорость по нормали к стене ≈ поперёк трассы.
       const right = this.track.path.sample(car.hint < 0 ? 0 : car.hint).right;
@@ -623,9 +646,14 @@ export class Simulation {
         best = lane;
       }
     }
-    const pos = this.track.path.pointAt(s, best);
-    pos.y = floorHeight(this.track, s, best);
-    const speed = Math.max(12, car.phys.forwardSpeed());
+    this.warp(car, s, best, Math.max(12, car.phys.forwardSpeed()));
+    car.ghostUntil = this.tick + STEP_HZ;
+  }
+
+  /** Перенести машину в точку трассы (s, d) по направлению движения; ворота между — засчитываются. */
+  warp(car: SimCar, s: number, d: number, speed: number): void {
+    const pos = this.track.path.pointAt(s, d);
+    pos.y = floorHeight(this.track, s, d);
     car.phys.teleport(pos, headingOf(this.track.path.tangentAt(s)), speed);
     this.tracker.skipTo(car.id, s, this.tick);
     const t = car.phys.body.translation();
@@ -637,7 +665,6 @@ export class Simulation {
     car.hint = pr.index;
     car.race.progress = this.tracker.progressOf(car.race, car.s);
     car.pilot.resetStuck(this.tick, car.race.progress);
-    car.ghostUntil = this.tick + STEP_HZ;
   }
 
   /** Сменить машину на ходу: новое тело в той же позе и с той же скоростью. */
@@ -715,6 +742,7 @@ export class Simulation {
           this.speedFor(car),
           neighbors.filter((n) => n.id !== car.id),
           this.hazards,
+          this.features.lures,
         );
         Object.assign(car.controls, car.pilot.out);
         if (car.race.finished) {
@@ -746,6 +774,7 @@ export class Simulation {
       car.cur.p.set(t.x, t.y, t.z);
       car.cur.q.set(r.x, r.y, r.z, r.w);
       const pr = path.project(t.x, t.y, t.z, car.hint);
+      const prevS = car.s;
       car.s = pr.s;
       car.d = pr.d;
       car.hint = pr.index;
@@ -764,6 +793,16 @@ export class Simulation {
       } else {
         car.race.progress = this.tracker.progressOf(car.race, car.s);
       }
+      if (racing && this.running && !car.race.finished && !car.wrecked && !car.race.out) {
+        const portal = this.features.portalCrossed(prevS, car.s, car.d);
+        if (portal) {
+          const from = car.cur.p.clone();
+          this.warp(car, portal.toS, portal.d, Math.max(14, car.phys.forwardSpeed()));
+          car.ghostUntil = this.tick + STEP_HZ;
+          this.events.emit('portal', { car, from, to: car.cur.p.clone() });
+        } else if (this.features.onBoost(car.s, car.d) && !this.combat.has(car, 'nitro'))
+          this.combat.addTimed(car, 'nitro', 1.2, 1, car.id);
+      }
       // Улетел вниз (обрыв, за пределы) — вернуть на трассу.
       if (racing && t.y < Math.min(pr.y, this.minY) - (this.track.def.fallDepth ?? 12)) this.respawn(car, 'fall');
     }
@@ -771,6 +810,7 @@ export class Simulation {
       this.combat.postStep();
       this.updateDamage();
     }
+    this.features.update();
     this.updateDebris();
     this.updatePhase();
     this.tick++;

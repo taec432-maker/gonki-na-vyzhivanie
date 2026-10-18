@@ -18,10 +18,53 @@ export function floorSection(track: Track, s: number): number[] {
   return [-edge, -half, -half * 0.5, 0, half * 0.5, half, edge];
 }
 
-/** Признак: в этой точке стены нет (шорткат, обрыв, переулок). */
-export function wallGapAt(track: Track, s: number): boolean {
+/** Признак: в этой точке стены нет (обрыв, переулок); side — с какой стороны (без side — с обеих). */
+export function wallGapAt(track: Track, s: number, side?: 1 | -1): boolean {
   const f = track.fracFromStart(s);
-  return (track.def.walls.gaps ?? []).some((g) => track.inSpan(f, g.from, g.to));
+  return (track.def.walls.gaps ?? []).some(
+    (g) => (g.side === undefined || side === undefined || g.side === side) && track.inSpan(f, g.from, g.to),
+  );
+}
+
+/** Линия отбойника: смещение от центра, где она есть, и «наружу» (куда смотрит профиль). */
+export interface WallLine {
+  offset: (s: number) => number;
+  include: (s: number) => boolean;
+  outward: 1 | -1;
+}
+
+/**
+ * Все отбойники трассы: два основных и внешний у каждого шортката. Где объезд
+ * сливается с дорогой, основной отбойник прерывается. Внутреннего отбойника у объезда нет:
+ * его торец у слияния — ловушка для машин, а середину объезда от дороги и так отделяет основной.
+ */
+export function wallLines(track: Track): WallLine[] {
+  const lines: WallLine[] = [];
+  const merged = (s: number, side: 1 | -1): boolean =>
+    track.shortcuts.some((sc) => {
+      if (sc.side !== side) return false;
+      // Основной отбойник прерывается на всём съезде и въезде (до «полки» объезда):
+      // иначе его торец оказывается на пути машин, срезающих поворот объезда.
+      const u = track.shortcutU(sc, s);
+      return u !== null && (u < 0.42 || u > 0.58);
+    });
+  for (const side of [-1, 1] as const)
+    lines.push({
+      offset: (s) => track.wallOffset(s) * side,
+      include: (s) => !wallGapAt(track, s, side) && !merged(s, side),
+      outward: side,
+    });
+  for (const sc of track.shortcuts) {
+    const dc = (s: number): number => track.shortcutD(sc, s) ?? 0;
+    const inside = (s: number): boolean => track.shortcutD(sc, s) !== null;
+    lines.push({
+      offset: (s) => dc(s) + (sc.side * sc.width) / 2,
+      // Внешний отбойник начинается чуть дальше края дороги: у слияния не торчит торцом в полосу.
+      include: (s) => inside(s) && Math.abs(dc(s)) + sc.width / 2 > track.wallOffset(s) + 4,
+      outward: sc.side,
+    });
+  }
+  return lines;
 }
 
 /** Высота полотна в точке (s, d) — с учётом трамплинов. Должна совпадать с визуальной сеткой. */
@@ -106,15 +149,16 @@ export function buildTrackColliders(world: RAPIER.World, track: Track): TrackCol
   const b = new Vector3();
   const q = new Quaternion();
   const yAxis = new Vector3(0, 1, 0);
+  const lines = wallLines(track);
   for (let k = 0; k < segs; k++) {
     const s0 = k * segLen;
     const s1 = Math.min(path.length, s0 + segLen);
     const sm = (s0 + s1) / 2;
-    if (wallGapAt(track, sm)) continue;
-    for (const side of [-1, 1]) {
-      const off = (path.widthAt(sm) / 2 + track.def.shoulder.width + track.def.walls.offset) * side;
-      path.pointAt(s0, off, a);
-      path.pointAt(s1, off, b);
+    for (const line of lines) {
+      if (!line.include(sm)) continue;
+      const side = line.outward;
+      path.pointAt(s0, line.offset(s0), a);
+      path.pointAt(s1, line.offset(s1), b);
       const len = a.distanceTo(b);
       if (len < 0.01) continue;
       const cx = (a.x + b.x) / 2;
@@ -133,6 +177,31 @@ export function buildTrackColliders(world: RAPIER.World, track: Track): TrackCol
       walls.push(col);
       wallHandles.add(col.handle);
     }
+  }
+  // Полотно шорткатов — отдельные ленты.
+  for (const sc of track.shortcuts) {
+    const verts: number[] = [];
+    const idx: number[] = [];
+    const len = path.deltaS(sc.fromS, sc.toS);
+    const steps = Math.ceil(len / 2);
+    for (let i = 0; i <= steps; i++) {
+      const sv = path.wrapS(sc.fromS + (len * i) / steps);
+      const dc = track.shortcutD(sc, sv) ?? 0;
+      for (const o of [-1, 0, 1]) {
+        path.pointAt(sv, dc + (o * sc.width) / 2, a);
+        verts.push(a.x, a.y + jumpOffset(track, sv) + 0.01, a.z);
+      }
+      if (i < steps)
+        for (let c = 0; c < 2; c++) {
+          const v = i * 3 + c;
+          idx.push(v, v + 1, v + 3, v + 1, v + 4, v + 3);
+        }
+    }
+    world.createCollider(
+      R.ColliderDesc.trimesh(new Float32Array(verts), new Uint32Array(idx))
+        .setCollisionGroups(FLOOR_GROUPS)
+        .setFriction(1.0),
+    );
   }
   return { floor, walls, ground, wallHandles };
 }

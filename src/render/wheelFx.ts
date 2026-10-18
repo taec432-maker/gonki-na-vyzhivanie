@@ -63,7 +63,7 @@ export class WheelFx {
         // Резкий старт: задние (ведущие) колёса буксуют на малой скорости.
         const launch = i >= 2 && throttle > 0.8 && speed < 9 ? 0.6 : 0;
         const slip = Math.max(w.slip, launch, car.controls.brake > 0.8 && speed > 12 ? 0.7 : 0);
-        if (paved && slip > 0.8 && speed > 3) {
+        if (paved && slip > 0.9 && speed > 3) {
           this.skids.add(key, p, right, 0.24 * k, slip);
           if (Math.random() < dt * 5 * slip) this.puff(p, 0.75, 0.75, 0.76, 0.28, 1.4);
         } else this.skids.lift(key);

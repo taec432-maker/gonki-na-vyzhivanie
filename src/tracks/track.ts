@@ -26,12 +26,30 @@ export function headingOf(dir: { x: number; z: number }): number {
   return Math.atan2(dir.x, -dir.z);
 }
 
+/** Шорткат в метрах трассы. */
+export interface Shortcut {
+  index: number;
+  fromS: number;
+  toS: number;
+  side: 1 | -1;
+  offset: number;
+  width: number;
+  surface: SurfaceType;
+  chance: number;
+}
+
+const smooth = (a: number, b: number, x: number): number => {
+  const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
 export class Track {
   readonly def: TrackDef;
   readonly path: TrackPath;
   readonly gates: Gate[];
   readonly startS: number;
   readonly rng: Rng;
+  readonly shortcuts: Shortcut[];
 
   constructor(def: TrackDef) {
     this.def = def;
@@ -39,6 +57,16 @@ export class Track {
     const pts: ControlPoint[] = def.points.map((p) => (Array.isArray(p) ? { x: p[0], y: p[1], z: p[2] } : p));
     this.path = new TrackPath(pts, def.width, 1);
     this.startS = this.path.wrapS(def.startAt * this.path.length);
+    this.shortcuts = (def.shortcuts ?? []).map((sc, index) => ({
+      index,
+      fromS: this.sFromFrac(sc.from),
+      toS: this.sFromFrac(sc.to),
+      side: sc.side,
+      offset: sc.offset,
+      width: sc.width,
+      surface: sc.surface ?? 'dirt',
+      chance: sc.chance ?? 0.4,
+    }));
     const cps = def.checkpoints;
     const fractions =
       typeof cps === 'number'
@@ -56,8 +84,43 @@ export class Track {
     return this.path.widthAt(s) / 2 + this.def.shoulder.width;
   }
 
+  /** Расстояние от центра до стены (без знака). */
+  wallOffset(s: number): number {
+    return this.path.widthAt(s) / 2 + this.def.shoulder.width + this.def.walls.offset;
+  }
+
+  /** Доля пройденного шортката 0..1 в точке s или null вне его. */
+  shortcutU(sc: Shortcut, s: number): number | null {
+    const len = this.path.deltaS(sc.fromS, sc.toS);
+    const u = this.path.deltaS(sc.fromS, s);
+    return u < 0 || u > len ? null : u / len;
+  }
+
+  /** Центр объезда в точке s (со знаком стороны) или null, если s вне шортката. */
+  shortcutD(sc: Shortcut, s: number): number | null {
+    const len = this.path.deltaS(sc.fromS, sc.toS);
+    const u = this.path.deltaS(sc.fromS, s);
+    if (u < 0 || u > len) return null;
+    const t = u / len;
+    return sc.side * sc.offset * smooth(0, 0.36, t) * (1 - smooth(0.64, 1, t));
+  }
+
+  /** Объезд в точке (s, d), если машина на нём. */
+  shortcutAt(s: number, d: number): Shortcut | null {
+    for (const sc of this.shortcuts) {
+      const dc = this.shortcutD(sc, s);
+      if (dc !== null && Math.abs(d - dc) < sc.width / 2 && Math.abs(dc) > this.path.widthAt(s) / 2) return sc;
+    }
+    return null;
+  }
+
   private makeGate(index: number, s: number): Gate {
-    const half = this.path.widthAt(s) / 2 + this.def.shoulder.width + this.def.walls.offset + 2;
+    let half = this.path.widthAt(s) / 2 + this.def.shoulder.width + this.def.walls.offset + 2;
+    // Ворота на участке шортката — шире, чтобы засчитать и объезд.
+    for (const sc of this.shortcuts) {
+      const dc = this.shortcutD(sc, s);
+      if (dc !== null) half = Math.max(half, Math.abs(dc) + sc.width / 2 + 2);
+    }
     const a = this.path.pointAt(s, -half);
     const b = this.path.pointAt(s, half);
     return {
@@ -89,7 +152,7 @@ export class Track {
   /** Покрытие в точке (s, d): дорога, зоны, обочина. */
   surfaceAt(s: number, d: number): SurfaceType {
     const half = this.path.widthAt(s) / 2;
-    if (Math.abs(d) > half + 0.25) return this.def.shoulder.surface;
+    if (Math.abs(d) > half + 0.25) return this.shortcutAt(s, d)?.surface ?? this.def.shoulder.surface;
     const frac = this.fracFromStart(s);
     for (const z of this.def.zones ?? []) if (this.inSpan(frac, z.from, z.to)) return z.surface;
     return this.def.surface;

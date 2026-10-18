@@ -60,10 +60,14 @@ export interface ShortcutDef {
   /** Начало и конец на основной линии. */
   from: number;
   to: number;
-  /** С какой стороны отходит (+1 — справа, −1 — слева) и максимальное отклонение, м. */
+  /** С какой стороны отходит (+1 — справа, −1 — слева) и максимальное отклонение центра, м. */
   side: 1 | -1;
   offset: number;
   width: number;
+  /** Покрытие объезда (по умолчанию грунт — короче, но медленнее). */
+  surface?: SurfaceType;
+  /** Вероятность, что бот поедет шорткатом (на каждом круге). */
+  chance?: number;
 }
 
 export interface PropDef {
@@ -89,6 +93,21 @@ export interface PropDef {
   breakable?: boolean;
 }
 
+export type BreakableType = 'barrel' | 'cone' | 'billboard' | 'crate';
+
+/** Разрушаемые препятствия у дороги: ряд от доли круга at через spacing метров. */
+export interface BreakableDef {
+  type: BreakableType;
+  at: number;
+  /** Смещение от центра дороги, м (+ — справа). */
+  d: number;
+  count: number;
+  spacing?: number;
+  /** Шахматка: каждое второе сдвигается на stagger м поперёк. */
+  stagger?: number;
+  rot?: number;
+}
+
 /** Область декора вне трассы: вода, площадка. Прямоугольник в XZ. */
 export interface AreaDef {
   type: 'water' | 'ground';
@@ -108,7 +127,7 @@ export interface TrackDef {
   surface: SurfaceType;
   zones?: SurfaceZone[];
   shoulder: { width: number; surface: SurfaceType };
-  walls: { offset: number; height: number; gaps?: Span[] };
+  walls: { offset: number; height: number; gaps?: (Span & { side?: 1 | -1 })[] };
   /** Число равномерно расставленных чекпойнтов или явный список долей круга. */
   checkpoints: number | number[];
   startAt: number;
@@ -122,6 +141,7 @@ export interface TrackDef {
   boosts?: BoostDef[];
   shortcuts?: ShortcutDef[];
   props?: PropDef[];
+  breakables?: BreakableDef[];
   /** Ниже этой высоты относительно дороги — вылет (обрыв): урон и возврат на трассу. */
   fallDepth?: number;
   /** Ростер машин локации (id), пусто — все обычные. */

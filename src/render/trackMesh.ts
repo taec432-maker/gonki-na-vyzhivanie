@@ -11,7 +11,7 @@ import {
   Vector3,
   type Material,
 } from 'three';
-import { floorSection, jumpOffset, wallGapAt } from '../physics/trackCollider';
+import { floorSection, jumpOffset, wallLines, type WallLine } from '../physics/trackCollider';
 import type { Track } from '../tracks/track';
 import { GROUND_STYLES, groundTexture, roadTexture, type GroundStyle } from './textures';
 
@@ -116,8 +116,9 @@ function checkerMaterial(): MeshStandardMaterial {
   return new MeshStandardMaterial({ map: t, roughness: 0.7 });
 }
 
-/** Отбойник: профиль «нью-джерси» вдоль края трассы. */
-function wallGeometry(track: Track, side: 1 | -1): BufferGeometry {
+/** Отбойник: профиль «нью-джерси» вдоль линии (край трассы или шортката). */
+function wallGeometry(track: Track, line: WallLine): BufferGeometry {
+  const side = line.outward;
   const path = track.path;
   const h = track.def.walls.height;
   // Профиль поперёк: (смещение наружу, высота).
@@ -138,7 +139,7 @@ function wallGeometry(track: Track, side: 1 | -1): BufferGeometry {
   const p = new Vector3();
   for (let i = 0; i <= n; i++) {
     const s = i === n ? path.length : path.sample(i).s;
-    const base = (path.widthAt(s) / 2 + track.def.shoulder.width + track.def.walls.offset) * side;
+    const base = line.offset(s);
     const jy = jumpOffset(track, s);
     for (let k = 0; k < prof.length; k++) {
       const [o, y] = prof[k] as [number, number];
@@ -150,7 +151,7 @@ function wallGeometry(track: Track, side: 1 | -1): BufferGeometry {
   const P = prof.length;
   for (let i = 0; i < n; i++) {
     const sMid = path.sample(i).s + path.step / 2;
-    if (wallGapAt(track, sMid)) continue;
+    if (!line.include(sMid)) continue;
     for (let k = 0; k < P - 1; k++) {
       const a = i * P + k;
       const b = a + 1;
@@ -292,11 +293,29 @@ export function buildTrackVisual(track: Track): TrackVisual {
   // Отбойники.
   const wallMat = pbrMaterial('concrete', 1);
   materials.push(wallMat);
-  for (const side of [-1, 1] as const) {
-    const w = new Mesh(wallGeometry(track, side), wallMat);
+  for (const line of wallLines(track)) {
+    const w = new Mesh(wallGeometry(track, line), wallMat);
     w.castShadow = true;
     w.receiveShadow = true;
     group.add(w);
+  }
+
+  // Шорткаты: своё полотно (обычно грунт) между своими отбойниками.
+  for (const sc of track.shortcuts) {
+    const dc = (s: number): number => track.shortcutD(sc, s) ?? 0;
+    const mat = pbrMaterial(sc.surface === 'asphalt' ? 'asphalt' : sc.surface, 1);
+    materials.push(mat);
+    const m = new Mesh(
+      ribbon(
+        track,
+        (s) => dc(s) - sc.width / 2,
+        (s) => dc(s) + sc.width / 2,
+        { cols: 3, lift: 0.03, uMeters: 4, vScale: 4, include: (s) => track.shortcutD(sc, s) !== null },
+      ),
+      mat,
+    );
+    m.receiveShadow = true;
+    group.add(m);
   }
 
   // Земля вокруг.
