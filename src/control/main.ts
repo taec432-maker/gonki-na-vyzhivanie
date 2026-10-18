@@ -14,6 +14,7 @@ app.innerHTML = `
   <h1>Гонки на выживание — панель</h1>
   <span id="link" class="pill bad">Игра не найдена</span>
   <span id="relay" class="pill muted"></span>
+  <span id="twice" class="pill bad" hidden></span>
 </header>
 <main>
   <section>
@@ -127,6 +128,8 @@ res.addEventListener('input', () => {
 });
 
 let lastSeen = 0;
+/** Окна игры, приславшие статус за последние 3 с (в эфире должно быть одно — в OBS). */
+const games = new Map<string, { at: number; obs: boolean }>();
 const link = document.getElementById('link') as HTMLElement;
 const relay = document.getElementById('relay') as HTMLElement;
 const statusEl = document.getElementById('status') as HTMLElement;
@@ -239,6 +242,7 @@ channel.on((msg) => {
   const s = msg.payload as GameStatus;
   lastSeen = Date.now();
   lastStatus = s;
+  games.set(s.instance, { at: lastSeen, obs: s.obs });
   updateGifts(s);
   statusEl.innerHTML = `
     <span class="muted">Состояние</span><span>${STATE[s.state]}</span>
@@ -320,5 +324,12 @@ setInterval(() => {
   link.textContent = alive ? 'Игра на связи' : 'Игра не найдена — откройте http://127.0.0.1:8091/';
   link.className = `pill ${alive ? 'ok' : 'bad'}`;
   relay.textContent = channel.relayConnected ? 'ретранслятор: да' : 'ретранслятор: нет (только этот браузер)';
+  for (const [id, g] of games) if (Date.now() - g.at > 3000) games.delete(id);
+  const twice = $('twice');
+  twice.hidden = games.size < 2;
+  if (games.size >= 2)
+    twice.textContent = [...games.values()].some((g) => g.obs)
+      ? `Игра открыта ${games.size} раза: в OBS и в браузере. Закройте вкладку игры в браузере: команды панели уходят в оба окна, а статус показывает то одно, то другое.`
+      : `Игра открыта ${games.size} раза — закройте лишние вкладки игры.`;
 }, 500);
 channel.send('hello', null);

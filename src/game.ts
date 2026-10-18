@@ -85,6 +85,10 @@ export interface GameStatus {
   feed: { name: string; what: string; effect: string | null; test: boolean; at: number }[];
   leaderboard: { name: string; points: number; wins: number; kills: number; races: number }[];
   eliminated: string[];
+  /** Окно игры (случайный id): панель видит, если игра открыта в двух местах сразу. */
+  instance: string;
+  /** Игра в OBS (браузер OBS называет себя в User-Agent). */
+  obs: boolean;
   /** Звук: состояние (running — играет; suspended — ждёт щелчка) и сколько моторов слышно. */
   audio: { state: string; engines: number };
 }
@@ -153,6 +157,8 @@ export class Game {
   frameCount = 0;
   ready = false;
   readonly errors: string[] = [];
+  /** Id этого окна игры — для предупреждения «игра открыта дважды». */
+  readonly instance = Math.random().toString(36).slice(2, 10);
 
   constructor(canvas: HTMLCanvasElement, params: UrlParams) {
     this.params = params;
@@ -704,6 +710,8 @@ export class Game {
       })),
       eliminated: (sim?.cars ?? []).filter((c) => c.race.out).map((c) => c.name),
       audio: this.sound.info(),
+      instance: this.instance,
+      obs: /OBS\//.test(navigator.userAgent),
     };
   }
 
